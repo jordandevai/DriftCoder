@@ -44,7 +44,10 @@ jobs:
             "platforms;${ANDROID_PLATFORM}" \
             "build-tools;${ANDROID_BUILD_TOOLS}" \
             "ndk;${NDK_VERSION}"
-          yes | sdkmanager --licenses
+          # `sdkmanager --licenses` often exits early once all licenses are accepted,
+          # which causes `yes` to hit SIGPIPE; GitHub Actions runs bash with `-o pipefail`,
+          # so ignore the resulting non-zero exit from `yes`.
+          yes | sdkmanager --licenses >/dev/null || true
           echo "NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
 
       - name: Rust cache
