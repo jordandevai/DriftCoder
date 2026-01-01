@@ -46,6 +46,28 @@ npm run tauri:dev
 npm run tauri:build
 ```
 
+### Android (APK)
+
+Local prerequisites:
+
+- Android SDK + NDK installed (Android Studio is the easiest way)
+- `ANDROID_HOME` (or `ANDROID_SDK_ROOT`) set to your SDK path
+- `NDK_HOME` set to your installed NDK path
+
+One-time Android target setup (generates the Gradle project under `src-tauri/gen/android`):
+
+```bash
+npx tauri android init
+```
+
+Build a debug APK for arm64 devices:
+
+```bash
+npx tauri android build --debug --apk true --aab false --target aarch64
+```
+
+CI: GitHub Actions builds a debug APK on pushes to `main` and on manual runs (`Actions → Android Debug APK`) and uploads it as the `driftcode-debug-apk` artifact.
+
 ### Project Structure
 
 ```
