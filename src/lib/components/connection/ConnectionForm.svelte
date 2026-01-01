@@ -1,0 +1,182 @@
+<script lang="ts">
+	import type { ConnectionProfile, AuthMethod } from '$types';
+	import Button from '$components/shared/Button.svelte';
+	import Input from '$components/shared/Input.svelte';
+
+	interface Props {
+		profile?: ConnectionProfile | null;
+		onclose: () => void;
+		onsave: (profile: ConnectionProfile) => void;
+		onconnect: (profile: ConnectionProfile, password?: string) => void;
+	}
+
+	let { profile = null, onclose, onsave, onconnect }: Props = $props();
+
+	// Form state - initialize from profile
+	let name = $state('');
+	let host = $state('');
+	let port = $state('22');
+	let username = $state('');
+	let authMethod = $state<AuthMethod>('key');
+	let keyPath = $state('~/.ssh/id_rsa');
+
+	// Reset form when profile changes
+	$effect(() => {
+		name = profile?.name || '';
+		host = profile?.host || '';
+		port = profile?.port?.toString() || '22';
+		username = profile?.username || '';
+		authMethod = profile?.authMethod || 'key';
+		keyPath = profile?.keyPath || '~/.ssh/id_rsa';
+	});
+	let password = $state('');
+	let saveConnection = $state(true);
+	let testing = $state(false);
+	let testResult = $state<'success' | 'failed' | null>(null);
+
+	const isEditing = $derived(!!profile);
+
+	function generateId(): string {
+		return crypto.randomUUID();
+	}
+
+	function buildProfile(): ConnectionProfile {
+		return {
+			id: profile?.id || generateId(),
+			name: name || `${username}@${host}`,
+			host,
+			port: parseInt(port) || 22,
+			username,
+			authMethod,
+			keyPath: authMethod === 'key' ? keyPath : undefined,
+			recentProjects: profile?.recentProjects || [],
+			bookmarkedPaths: profile?.bookmarkedPaths || []
+		};
+	}
+
+	async function handleTest() {
+		testing = true;
+		testResult = null;
+
+		try {
+			const { invoke } = await import('$utils/tauri');
+			const connectionProfile = buildProfile();
+			const success = await invoke<boolean>('ssh_test_connection', {
+				profile: connectionProfile,
+				password: authMethod === 'password' ? password : undefined
+			});
+			testResult = success ? 'success' : 'failed';
+		} catch {
+			testResult = 'failed';
+		} finally {
+			testing = false;
+		}
+	}
+
+	function handleSave() {
+		const connectionProfile = buildProfile();
+		onsave(connectionProfile);
+	}
+
+	function handleConnect() {
+		const connectionProfile = buildProfile();
+		if (saveConnection) {
+			onsave(connectionProfile);
+		}
+		onconnect(connectionProfile, authMethod === 'password' ? password : undefined);
+	}
+
+	function handleSubmit(e: SubmitEvent) {
+		e.preventDefault();
+		handleConnect();
+	}
+</script>
+
+<div class="bg-panel-bg border border-panel-border rounded-lg overflow-hidden">
+	<div class="flex items-center justify-between px-4 py-3 border-b border-panel-border">
+		<h2 class="text-lg font-medium">
+			{isEditing ? 'Edit Connection' : 'New Connection'}
+		</h2>
+		<button class="p-1 rounded hover:bg-panel-active transition-colors" onclick={onclose} aria-label="Close">
+			<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					stroke-width="2"
+					d="M6 18L18 6M6 6l12 12"
+				/>
+			</svg>
+		</button>
+	</div>
+
+	<form class="p-4 space-y-4" onsubmit={handleSubmit}>
+		<Input label="Connection Name" placeholder="My Server" bind:value={name} />
+
+		<div class="grid grid-cols-3 gap-4">
+			<div class="col-span-2">
+				<Input label="Host" placeholder="192.168.1.100" bind:value={host} required />
+			</div>
+			<Input label="Port" type="number" bind:value={port} required />
+		</div>
+
+		<Input label="Username" placeholder="user" bind:value={username} required />
+
+		<!-- Auth Method -->
+		<fieldset class="space-y-2">
+			<legend class="text-sm text-gray-400">Authentication</legend>
+			<div class="flex gap-4">
+				<label class="flex items-center gap-2 cursor-pointer">
+					<input
+						type="radio"
+						name="authMethod"
+						value="key"
+						bind:group={authMethod}
+						class="text-accent"
+					/>
+					<span>SSH Key</span>
+				</label>
+				<label class="flex items-center gap-2 cursor-pointer">
+					<input
+						type="radio"
+						name="authMethod"
+						value="password"
+						bind:group={authMethod}
+						class="text-accent"
+					/>
+					<span>Password</span>
+				</label>
+			</div>
+		</fieldset>
+
+		{#if authMethod === 'key'}
+			<Input label="Key Path" placeholder="~/.ssh/id_rsa" bind:value={keyPath} />
+		{:else}
+			<Input label="Password" type="password" bind:value={password} required />
+		{/if}
+
+		<!-- Save checkbox -->
+		<label class="flex items-center gap-2 cursor-pointer">
+			<input type="checkbox" bind:checked={saveConnection} class="text-accent rounded" />
+			<span class="text-sm text-gray-400">Save this connection</span>
+		</label>
+
+		<!-- Test result -->
+		{#if testResult}
+			<div
+				class="p-3 rounded text-sm {testResult === 'success'
+					? 'bg-success/10 text-success border border-success'
+					: 'bg-error/10 text-error border border-error'}"
+			>
+				{testResult === 'success' ? 'Connection successful!' : 'Connection failed'}
+			</div>
+		{/if}
+
+		<!-- Actions -->
+		<div class="flex gap-3 pt-2">
+			<Button variant="secondary" onclick={handleTest} loading={testing}>Test</Button>
+			<div class="flex-1"></div>
+			<Button variant="ghost" onclick={onclose}>Cancel</Button>
+			<Button type="submit">Connect</Button>
+		</div>
+	</form>
+</div>

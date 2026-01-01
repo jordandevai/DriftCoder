@@ -1,0 +1,24 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import '../app.css';
+	import { connectionStore } from '$stores/connection';
+
+	let { children } = $props();
+
+	onMount(() => {
+		connectionStore.init();
+	});
+</script>
+
+<svelte:head>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+	<link
+		href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+		rel="stylesheet"
+	/>
+</svelte:head>
+
+<div class="h-screen w-screen overflow-hidden bg-editor-bg text-editor-fg">
+	{@render children()}
+</div>
