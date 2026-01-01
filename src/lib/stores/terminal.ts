@@ -27,6 +27,7 @@ function createTerminalStore() {
 			if (!session) {
 				throw new Error('No active session');
 			}
+			const sessionId = session.id;
 
 			const terminalId = await invoke<string>('terminal_create', {
 				connId: session.connectionId,
@@ -42,7 +43,7 @@ function createTerminalStore() {
 			const terminalSession: TerminalSession = {
 				id: terminalId,
 				title: `Terminal ${sessionTerminalCount + 1}`,
-				sessionId: session.id
+				sessionId
 			};
 
 			// Add to global registry
@@ -53,10 +54,10 @@ function createTerminalStore() {
 			});
 
 			// Register with workspace session
-			workspaceStore.addTerminalToSession(session.id, terminalId);
+			workspaceStore.addTerminalToSession(sessionId, terminalId);
 
 			// Add panel to the session's layout
-			layoutStore.addPanel({
+			layoutStore.addPanelForSession(sessionId, {
 				type: 'terminal',
 				title: terminalSession.title,
 				terminalId
@@ -105,10 +106,13 @@ function createTerminalStore() {
 			});
 
 			// Update panel title
-			const panel = layoutStore.findPanelByTerminalId(terminalId);
-			if (panel) {
-				layoutStore.updatePanelTitle(panel.id, title);
-			}
+			const terminal = get({ subscribe }).allTerminals.get(terminalId);
+			if (!terminal) return;
+
+			const panel = layoutStore.findPanelByTerminalId(terminalId, terminal.sessionId);
+			if (!panel) return;
+
+			layoutStore.updatePanelTitleForSession(terminal.sessionId, panel.id, title);
 		},
 
 		/**
@@ -136,6 +140,27 @@ function createTerminalStore() {
 			}
 		},
 
+		/**
+		 * Prune terminals whose owning session no longer exists.
+		 * (Session close currently happens in workspaceStore; this keeps the terminal registry consistent.)
+		 */
+		reconcileSessions(validSessionIds: Set<string>): void {
+			update((s) => {
+				if (s.allTerminals.size === 0) return s;
+
+				let changed = false;
+				const next = new Map(s.allTerminals);
+				for (const [terminalId, terminal] of next) {
+					if (!validSessionIds.has(terminal.sessionId)) {
+						next.delete(terminalId);
+						changed = true;
+					}
+				}
+
+				return changed ? { ...s, allTerminals: next } : s;
+			});
+		},
+
 		reset(): void {
 			set(initialState);
 		}
@@ -159,3 +184,8 @@ export const activeSessionTerminals = derived(
 export const allTerminals = derived(terminalStore, ($store) =>
 	Array.from($store.allTerminals.values())
 );
+
+// Keep the terminal registry consistent when sessions are closed/removed.
+workspaceStore.subscribe(($ws) => {
+	terminalStore.reconcileSessions(new Set($ws.sessions.keys()));
+});

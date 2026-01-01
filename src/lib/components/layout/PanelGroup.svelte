@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { layoutStore } from '$stores/layout';
 	import { workspaceStore, activeSession } from '$stores/workspace';
+	import { fileStore } from '$stores/files';
+	import { terminalStore } from '$stores/terminal';
+	import { notificationsStore } from '$stores/notifications';
 	import TabBar from './TabBar.svelte';
 	import EditorPanel from '$components/panels/EditorPanel.svelte';
 	import TerminalPanel from '$components/panels/TerminalPanel.svelte';
@@ -17,12 +20,12 @@
 	const activePanelId = $derived(group?.activePanelId);
 	const currentSessionId = $derived($activeSession?.id);
 
-	// Collect ALL panels from ALL sessions for persistence
+	// Collect ALL terminal panels from ALL sessions for persistence
 	interface SessionPanel extends Panel {
 		sessionId: string;
 	}
 
-	const allPanels = $derived.by(() => {
+	const allTerminalPanels = $derived.by(() => {
 		const panels: SessionPanel[] = [];
 		const ws = $workspaceStore;
 
@@ -30,19 +33,58 @@
 			const sessionGroup = session.layoutState.groups.get(groupId);
 			if (sessionGroup) {
 				for (const panel of sessionGroup.panels) {
-					panels.push({ ...panel, sessionId });
+					if (panel.type === 'terminal') {
+						panels.push({ ...panel, sessionId });
+					}
 				}
 			}
 		}
 		return panels;
 	});
 
-	// Check if a panel should be visible
-	function isPanelVisible(panel: SessionPanel): boolean {
+	// Keep active file path in sync with the active panel
+	$effect(() => {
+		if (!group) return;
+
+		const activePanel = group.activePanelId
+			? group.panels.find((p) => p.id === group.activePanelId) || null
+			: null;
+
+		if (!activePanel || activePanel.type !== 'editor' || !activePanel.filePath) {
+			fileStore.setActiveFile(null);
+			return;
+		}
+
+		fileStore.setActiveFile(activePanel.filePath);
+	});
+
+	function isActiveEditorPanel(panel: Panel): boolean {
+		return panel.id === activePanelId;
+	}
+
+	function isVisibleTerminalPanel(panel: SessionPanel): boolean {
 		return panel.sessionId === currentSessionId && panel.id === activePanelId;
 	}
 
 	function handleTabClose(panelId: string) {
+		if (!group) return;
+
+		const panel = group.panels.find((p) => p.id === panelId);
+		if (panel?.type === 'editor' && panel.filePath) {
+			fileStore.closeFile(panel.filePath);
+		}
+		if (panel?.type === 'terminal' && panel.terminalId) {
+			terminalStore.closeTerminal(panel.terminalId).catch((error) => {
+				console.error('Failed to close terminal:', error);
+				notificationsStore.notify({
+					severity: 'error',
+					title: 'Terminal Close Failed',
+					message: 'Could not close the terminal.',
+					detail: error instanceof Error ? error.message : String(error)
+				});
+			});
+		}
+
 		layoutStore.removePanel(panelId);
 	}
 
@@ -61,17 +103,19 @@
 			onclose={handleTabClose}
 		/>
 
-		<!-- Panel Content - render ALL panels from ALL sessions, show only active one -->
+		<!-- Panel Content -->
 		<div class="flex-1 overflow-hidden relative">
-			{#each allPanels as panel (`${panel.sessionId}-${panel.id}`)}
-				<div
-					class="absolute inset-0 {isPanelVisible(panel) ? '' : 'invisible pointer-events-none'}"
-				>
-					{#if panel.type === 'editor'}
-						<EditorPanel filePath={panel.filePath || ''} />
-					{:else if panel.type === 'terminal'}
-						<TerminalPanel terminalId={panel.terminalId || ''} />
-					{/if}
+			<!-- Editor panels: only the active session (editors are session-scoped via fileStore) -->
+			{#each group.panels.filter((p) => p.type === 'editor') as panel (panel.id)}
+				<div class="absolute inset-0 {isActiveEditorPanel(panel) ? '' : 'invisible pointer-events-none'}">
+					<EditorPanel filePath={panel.filePath || ''} />
+				</div>
+			{/each}
+
+			<!-- Terminal panels: keep ALL sessions mounted for persistence -->
+			{#each allTerminalPanels as panel (`${panel.sessionId}-${panel.id}`)}
+				<div class="absolute inset-0 {isVisibleTerminalPanel(panel) ? '' : 'invisible pointer-events-none'}">
+					<TerminalPanel terminalId={panel.terminalId || ''} />
 				</div>
 			{/each}
 		</div>

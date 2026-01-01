@@ -1,4 +1,4 @@
-import { load, Store } from '@tauri-apps/plugin-store';
+import { load, type Store } from '@tauri-apps/plugin-store';
 import type { ConnectionProfile } from '$types';
 
 let store: Store | null = null;

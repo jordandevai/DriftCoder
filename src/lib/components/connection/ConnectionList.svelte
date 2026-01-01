@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { ConnectionProfile } from '$types';
 	import Button from '$components/shared/Button.svelte';
+	import Modal from '$components/shared/Modal.svelte';
+	import { confirmStore } from '$stores/confirm';
 
 	interface Props {
 		profiles: ConnectionProfile[];
@@ -34,10 +36,15 @@
 		}
 	}
 
-	function handleDeleteConfirm(profile: ConnectionProfile) {
-		if (confirm(`Delete connection "${profile.name}"?`)) {
-			ondelete(profile.id);
-		}
+	async function handleDeleteConfirm(profile: ConnectionProfile) {
+		const confirmed = await confirmStore.confirm({
+			title: 'Delete Connection',
+			message: `Delete connection "${profile.name}"?`,
+			confirmText: 'Delete',
+			cancelText: 'Cancel',
+			destructive: true
+		});
+		if (confirmed) ondelete(profile.id);
 	}
 
 	function getProjectName(path: string): string {
@@ -147,14 +154,16 @@
 </div>
 
 <!-- Password Prompt Modal -->
-{#if passwordPrompt}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-		<div class="bg-panel-bg border border-panel-border rounded-lg shadow-xl w-full max-w-sm mx-4">
-			<div class="px-4 py-3 border-b border-panel-border">
-				<h3 class="font-medium">Enter Password</h3>
-				<p class="text-sm text-gray-400">{passwordPrompt.profile.name}</p>
-			</div>
-			<form class="p-4 space-y-4" onsubmit={handlePasswordSubmit}>
+<Modal
+	open={!!passwordPrompt}
+	title="Enter Password"
+	size="sm"
+	onclose={() => (passwordPrompt = null)}
+>
+	{#if passwordPrompt}
+		<div class="space-y-2">
+			<div class="text-sm text-gray-400">{passwordPrompt.profile.name}</div>
+			<form class="space-y-4" onsubmit={handlePasswordSubmit}>
 				<!-- svelte-ignore a11y_autofocus -->
 				<input
 					type="password"
@@ -169,5 +178,5 @@
 				</div>
 			</form>
 		</div>
-	</div>
-{/if}
+	{/if}
+</Modal>

@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { fileStore } from '$stores/files';
 	import { layoutStore } from '$stores/layout';
+	import { activeSession } from '$stores/workspace';
+	import { confirmStore } from '$stores/confirm';
 	import type { FileEntry } from '$types';
 
 	let contextMenu = $state<{ x: number; y: number; entry: FileEntry } | null>(null);
@@ -15,17 +17,20 @@
 
 	async function openFile(entry: FileEntry) {
 		if (!entry.isDirectory) {
+			const sessionId = $activeSession?.id;
+			if (!sessionId) return;
+
 			await fileStore.openFile(entry.path);
 			// Add editor panel if not already open
-			const existingPanel = layoutStore.findPanelByFilePath(entry.path);
+			const existingPanel = layoutStore.findPanelByFilePath(entry.path, sessionId);
 			if (!existingPanel) {
-				layoutStore.addPanel({
+				layoutStore.addPanelForSession(sessionId, {
 					type: 'editor',
 					title: entry.name,
 					filePath: entry.path
 				});
 			} else {
-				layoutStore.setActivePanel(existingPanel.id);
+				layoutStore.setActivePanelForSession(sessionId, existingPanel.id);
 			}
 		}
 	}
@@ -40,7 +45,14 @@
 	}
 
 	async function handleDelete(entry: FileEntry) {
-		if (confirm(`Delete "${entry.name}"?`)) {
+		const confirmed = await confirmStore.confirm({
+			title: 'Delete',
+			message: `Delete "${entry.name}"?`,
+			confirmText: 'Delete',
+			cancelText: 'Cancel',
+			destructive: true
+		});
+		if (confirmed) {
 			await fileStore.deleteEntry(entry.path);
 		}
 		closeContextMenu();

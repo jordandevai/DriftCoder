@@ -1,6 +1,15 @@
 <script lang="ts">
-	import { workspaceStore, activeSession } from '$stores/workspace';
-	import { terminalStore } from '$stores/terminal';
+	import { workspaceStore } from '$stores/workspace';
+	import Modal from '$components/shared/Modal.svelte';
+	import Button from '$components/shared/Button.svelte';
+	import {
+		closeActiveProject,
+		closeActiveTerminalPanel,
+		newTerminal,
+		saveActiveFile,
+		saveAllDirtyFilesInActiveSession,
+		toggleFileTree
+	} from '$utils/commands';
 
 	interface Props {
 		collapsed?: boolean;
@@ -11,6 +20,8 @@
 	let { collapsed = false, ontogglecollapse, onaddproject }: Props = $props();
 
 	let activeMenu = $state<string | null>(null);
+	let shortcutsOpen = $state(false);
+	let aboutOpen = $state(false);
 
 	interface MenuItem {
 		label: string;
@@ -93,38 +104,34 @@
 				onaddproject?.();
 				break;
 			case 'closeProject':
-				if ($activeSession) {
-					await workspaceStore.closeSession($activeSession.id);
-				}
+				await closeActiveProject();
 				break;
 			case 'save':
-				// TODO: Implement save through fileStore
+				await saveActiveFile();
 				break;
 			case 'saveAll':
-				// TODO: Implement save all
+				await saveAllDirtyFilesInActiveSession();
 				break;
 			case 'disconnectAll':
 				await workspaceStore.closeAll();
 				break;
 			case 'toggleFileTree':
-				// TODO: Toggle via layoutStore
+				toggleFileTree();
 				break;
 			case 'toggleMenu':
 				ontogglecollapse?.();
 				break;
 			case 'newTerminal':
-				if ($activeSession) {
-					await terminalStore.createTerminal();
-				}
+				await newTerminal();
 				break;
 			case 'closeTerminal':
-				// TODO: Close active terminal
+				await closeActiveTerminalPanel();
 				break;
 			case 'shortcuts':
-				// TODO: Show shortcuts modal
+				shortcutsOpen = true;
 				break;
 			case 'about':
-				// TODO: Show about modal
+				aboutOpen = true;
 				break;
 		}
 	}
@@ -211,6 +218,54 @@
 		<span class="text-sm text-gray-400 mr-2">DriftCoder</span>
 	{/if}
 </div>
+
+<Modal bind:open={shortcutsOpen} title="Keyboard Shortcuts" size="lg">
+	<div class="space-y-4 text-sm">
+		<div class="text-gray-400">
+			Shortcuts currently supported in the app:
+		</div>
+		<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+			<div class="flex items-center justify-between gap-3 bg-editor-bg border border-panel-border rounded px-3 py-2">
+				<span>Save</span>
+				<code class="text-xs text-gray-300">Ctrl+S</code>
+			</div>
+			<div class="flex items-center justify-between gap-3 bg-editor-bg border border-panel-border rounded px-3 py-2">
+				<span>Add Project</span>
+				<code class="text-xs text-gray-300">Ctrl+Shift+N</code>
+			</div>
+			<div class="flex items-center justify-between gap-3 bg-editor-bg border border-panel-border rounded px-3 py-2">
+				<span>New Terminal</span>
+				<code class="text-xs text-gray-300">Ctrl+Shift+`</code>
+			</div>
+			<div class="flex items-center justify-between gap-3 bg-editor-bg border border-panel-border rounded px-3 py-2">
+				<span>Toggle File Tree</span>
+				<code class="text-xs text-gray-300">Ctrl+B</code>
+			</div>
+			<div class="flex items-center justify-between gap-3 bg-editor-bg border border-panel-border rounded px-3 py-2">
+				<span>Close Menus/Dialogs</span>
+				<code class="text-xs text-gray-300">Esc</code>
+			</div>
+		</div>
+
+		<div class="flex justify-end">
+			<Button onclick={() => (shortcutsOpen = false)}>Close</Button>
+		</div>
+	</div>
+</Modal>
+
+<Modal bind:open={aboutOpen} title="About DriftCoder" size="md">
+	<div class="space-y-3 text-sm">
+		<div class="text-gray-200">
+			DriftCoder is a lightweight SSH-based code editor built with Tauri and Svelte.
+		</div>
+		<div class="text-gray-400">
+			Key features: remote editing over SSH (no server install), CodeMirror editor, xterm terminal, multi-project tabs.
+		</div>
+		<div class="flex justify-end">
+			<Button onclick={() => (aboutOpen = false)}>Close</Button>
+		</div>
+	</div>
+</Modal>
 
 <style>
 	.menu-toggle {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { invoke, listen } from '$utils/tauri';
+	import { notificationsStore } from '$stores/notifications';
 
 	import type { Terminal as TerminalType } from 'xterm';
 	import type { FitAddon as FitAddonType } from '@xterm/addon-fit';
@@ -16,6 +17,8 @@
 	let fitAddon: FitAddonType | null = null;
 	let unlisten: (() => void) | null = null;
 	let resizeObserver: ResizeObserver | null = null;
+	let writeErrorNotified = false;
+	let resizeErrorNotified = false;
 
 	async function initTerminal() {
 		if (!terminalContainer) return;
@@ -70,6 +73,15 @@
 				await invoke('terminal_write', { termId: terminalId, data: Array.from(bytes) });
 			} catch (error) {
 				console.error('Failed to write to terminal:', error);
+				if (!writeErrorNotified) {
+					writeErrorNotified = true;
+					notificationsStore.notify({
+						severity: 'error',
+						title: 'Terminal Disconnected',
+						message: 'Terminal input failed. The remote terminal may have closed or disconnected.',
+						detail: error instanceof Error ? error.message : String(error)
+					});
+				}
 			}
 		});
 
@@ -79,6 +91,15 @@
 				await invoke('terminal_resize', { termId: terminalId, cols, rows });
 			} catch (error) {
 				console.error('Failed to resize terminal:', error);
+				if (!resizeErrorNotified) {
+					resizeErrorNotified = true;
+					notificationsStore.notify({
+						severity: 'warning',
+						title: 'Terminal Resize Failed',
+						message: 'Could not resize the remote terminal.',
+						detail: error instanceof Error ? error.message : String(error)
+					});
+				}
 			}
 		});
 

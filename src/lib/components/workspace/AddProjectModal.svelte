@@ -4,6 +4,7 @@
 	import ConnectionForm from '$components/connection/ConnectionForm.svelte';
 	import FolderSelectEmbedded from './FolderSelectEmbedded.svelte';
 	import { connectionStore, activeConnectionsList } from '$stores/connection';
+	import { notificationsStore } from '$stores/notifications';
 	import { workspaceStore } from '$stores/workspace';
 	import type { ConnectionProfile, ActiveConnection } from '$types';
 
@@ -68,6 +69,12 @@
 			step = 'folder';
 		} catch (error) {
 			console.error('Connection failed:', error);
+			notificationsStore.notify({
+				severity: 'error',
+				title: 'Connection Failed',
+				message: `Could not connect to ${profile.username}@${profile.host}:${profile.port}.`,
+				detail: error instanceof Error ? error.message : String(error)
+			});
 		}
 	}
 
@@ -85,6 +92,12 @@
 			handleClose();
 		} catch (error) {
 			console.error('Failed to create session:', error);
+			notificationsStore.notify({
+				severity: 'error',
+				title: 'Open Project Failed',
+				message: `Could not open ${path}.`,
+				detail: error instanceof Error ? error.message : String(error)
+			});
 		}
 	}
 

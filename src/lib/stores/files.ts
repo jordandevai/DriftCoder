@@ -3,6 +3,7 @@ import type { FileState, FileEntry, OpenFile, SessionFileState } from '$types';
 import { invoke } from '$utils/tauri';
 import { workspaceStore, activeSession } from './workspace';
 import { detectLanguage } from '$utils/languages';
+import { sortEntries } from '$utils/file-tree';
 
 // Initial state for when no session is active
 const emptyState: FileState = {
@@ -12,15 +13,6 @@ const emptyState: FileState = {
 	openFiles: new Map(),
 	activeFilePath: null
 };
-
-// Sort entries: directories first, then alphabetically
-function sortEntries(entries: FileEntry[]): FileEntry[] {
-	return [...entries].sort((a, b) => {
-		if (a.isDirectory && !b.isDirectory) return -1;
-		if (!a.isDirectory && b.isDirectory) return 1;
-		return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-	});
-}
 
 // Add children to a specific directory in the tree
 function addChildrenToTree(tree: FileEntry[], parentPath: string, children: FileEntry[]): FileEntry[] {
@@ -34,27 +26,16 @@ function addChildrenToTree(tree: FileEntry[], parentPath: string, children: File
 	});
 }
 
-// Get the connection ID for the active session
-function getActiveConnectionId(): string {
+function requireActiveSession() {
 	const session = get(activeSession);
 	if (!session) {
 		throw new Error('No active session');
 	}
-	return session.connectionId;
+	return session;
 }
 
-// Get the active session ID
-function getActiveSessionId(): string {
-	const ws = get(workspaceStore);
-	if (!ws.activeSessionId) {
-		throw new Error('No active session');
-	}
-	return ws.activeSessionId;
-}
-
-// Update the active session's file state
-function updateFileState(updater: (state: SessionFileState) => SessionFileState): void {
-	const sessionId = getActiveSessionId();
+// Update a specific session's file state (prevents async actions from mutating the wrong session after a tab switch)
+function updateFileState(sessionId: string, updater: (state: SessionFileState) => SessionFileState): void {
 	workspaceStore.updateSessionFileState(sessionId, updater);
 }
 
@@ -76,14 +57,29 @@ function createFileStore() {
 		// Subscribe to the derived state
 		subscribe: fileStateStore.subscribe,
 
+		async fetchRemoteFile(path: string): Promise<{ content: string; mtime: number }> {
+			const session = requireActiveSession();
+			const connId = session.connectionId;
+
+			const [content, stat] = await Promise.all([
+				invoke<string>('sftp_read_file', { connId, path }),
+				invoke<{ mtime: number }>('sftp_stat', { connId, path })
+			]);
+
+			return { content, mtime: stat.mtime };
+		},
+
 		async refreshDirectory(path: string): Promise<void> {
-			const connId = getActiveConnectionId();
+			const session = requireActiveSession();
+			const sessionId = session.id;
+			const connId = session.connectionId;
+			const projectRoot = session.projectRoot;
+
 			const entries = await invoke<FileEntry[]>('sftp_list_dir', { connId, path });
 			const sortedEntries = sortEntries(entries);
-			const session = get(activeSession);
 
-			updateFileState((s) => {
-				if (path === session?.projectRoot) {
+			updateFileState(sessionId, (s) => {
+				if (path === projectRoot) {
 					return { ...s, tree: sortedEntries };
 				}
 				const newTree = addChildrenToTree(s.tree, path, sortedEntries);
@@ -92,11 +88,14 @@ function createFileStore() {
 		},
 
 		async expandDirectory(path: string): Promise<void> {
-			const connId = getActiveConnectionId();
+			const session = requireActiveSession();
+			const sessionId = session.id;
+			const connId = session.connectionId;
+
 			const entries = await invoke<FileEntry[]>('sftp_list_dir', { connId, path });
 			const sortedEntries = sortEntries(entries);
 
-			updateFileState((s) => {
+			updateFileState(sessionId, (s) => {
 				const newExpanded = new Set(s.expandedPaths);
 				newExpanded.add(path);
 				const newTree = addChildrenToTree(s.tree, path, sortedEntries);
@@ -109,7 +108,10 @@ function createFileStore() {
 		},
 
 		collapseDirectory(path: string): void {
-			updateFileState((s) => {
+			const session = get(activeSession);
+			if (!session) return;
+
+			updateFileState(session.id, (s) => {
 				const newExpanded = new Set(s.expandedPaths);
 				newExpanded.delete(path);
 				return { ...s, expandedPaths: newExpanded };
@@ -128,18 +130,20 @@ function createFileStore() {
 		},
 
 		async openFile(path: string): Promise<void> {
-			const session = get(activeSession);
-			if (!session) return;
+			const session = requireActiveSession();
+			const sessionId = session.id;
+			const connId = session.connectionId;
 
 			// Already open, just activate
 			if (session.fileState.openFiles.has(path)) {
-				updateFileState((s) => ({ ...s, activeFilePath: path }));
+				updateFileState(sessionId, (s) => ({ ...s, activeFilePath: path }));
 				return;
 			}
 
-			const connId = getActiveConnectionId();
-			const content = await invoke<string>('sftp_read_file', { connId, path });
-			const stat = await invoke<{ mtime: number }>('sftp_stat', { connId, path });
+			const [content, stat] = await Promise.all([
+				invoke<string>('sftp_read_file', { connId, path }),
+				invoke<{ mtime: number }>('sftp_stat', { connId, path })
+			]);
 
 			const fileName = path.split('/').pop() || path;
 			const language = detectLanguage(fileName);
@@ -152,7 +156,7 @@ function createFileStore() {
 				remoteMtime: stat.mtime
 			};
 
-			updateFileState((s) => {
+			updateFileState(sessionId, (s) => {
 				const newOpenFiles = new Map(s.openFiles);
 				newOpenFiles.set(path, openFile);
 				return { ...s, openFiles: newOpenFiles, activeFilePath: path };
@@ -160,7 +164,10 @@ function createFileStore() {
 		},
 
 		updateFileContent(path: string, content: string): void {
-			updateFileState((s) => {
+			const session = get(activeSession);
+			if (!session) return;
+
+			updateFileState(session.id, (s) => {
 				const file = s.openFiles.get(path);
 				if (!file) return s;
 
@@ -170,14 +177,47 @@ function createFileStore() {
 			});
 		},
 
-		async saveFile(path: string): Promise<void> {
+		setRemoteMtime(path: string, remoteMtime: number): void {
 			const session = get(activeSession);
 			if (!session) return;
 
+			updateFileState(session.id, (s) => {
+				const file = s.openFiles.get(path);
+				if (!file) return s;
+
+				const newOpenFiles = new Map(s.openFiles);
+				newOpenFiles.set(path, { ...file, remoteMtime });
+				return { ...s, openFiles: newOpenFiles };
+			});
+		},
+
+		async reloadFileFromRemote(path: string): Promise<void> {
+			const session = requireActiveSession();
+			const sessionId = session.id;
+
+			const remote = await this.fetchRemoteFile(path);
+			updateFileState(sessionId, (s) => {
+				const file = s.openFiles.get(path);
+				if (!file) return s;
+
+				const newOpenFiles = new Map(s.openFiles);
+				newOpenFiles.set(path, {
+					...file,
+					content: remote.content,
+					dirty: false,
+					remoteMtime: remote.mtime
+				});
+				return { ...s, openFiles: newOpenFiles };
+			});
+		},
+
+		async saveFile(path: string): Promise<void> {
+			const session = requireActiveSession();
+			const sessionId = session.id;
+			const connId = session.connectionId;
+
 			const file = session.fileState.openFiles.get(path);
 			if (!file) return;
-
-			const connId = getActiveConnectionId();
 
 			// Check for conflicts
 			const remoteStat = await invoke<{ mtime: number }>('sftp_stat', { connId, path });
@@ -191,7 +231,7 @@ function createFileStore() {
 				content: file.content
 			});
 
-			updateFileState((s) => {
+			updateFileState(sessionId, (s) => {
 				const newOpenFiles = new Map(s.openFiles);
 				const updatedFile = newOpenFiles.get(path);
 				if (updatedFile) {
@@ -205,8 +245,43 @@ function createFileStore() {
 			});
 		},
 
+		async forceSaveFile(path: string, contentOverride?: string): Promise<void> {
+			const session = requireActiveSession();
+			const sessionId = session.id;
+			const connId = session.connectionId;
+
+			const sessionState = get(activeSession);
+			const file = sessionState?.fileState.openFiles.get(path);
+			if (!file && contentOverride === undefined) return;
+
+			const content = contentOverride ?? file!.content;
+
+			const result = await invoke<{ mtime: number }>('sftp_write_file', {
+				connId,
+				path,
+				content
+			});
+
+			updateFileState(sessionId, (s) => {
+				const existing = s.openFiles.get(path);
+				if (!existing) return s;
+
+				const newOpenFiles = new Map(s.openFiles);
+				newOpenFiles.set(path, {
+					...existing,
+					content,
+					dirty: false,
+					remoteMtime: result.mtime
+				});
+				return { ...s, openFiles: newOpenFiles };
+			});
+		},
+
 		closeFile(path: string): void {
-			updateFileState((s) => {
+			const session = get(activeSession);
+			if (!session) return;
+
+			updateFileState(session.id, (s) => {
 				const newOpenFiles = new Map(s.openFiles);
 				newOpenFiles.delete(path);
 
@@ -221,28 +296,38 @@ function createFileStore() {
 		},
 
 		setActiveFile(path: string | null): void {
-			updateFileState((s) => ({ ...s, activeFilePath: path }));
+			const session = get(activeSession);
+			if (!session) return;
+
+			updateFileState(session.id, (s) => ({ ...s, activeFilePath: path }));
 		},
 
 		async createFile(path: string): Promise<void> {
-			const connId = getActiveConnectionId();
+			const session = requireActiveSession();
+			const connId = session.connectionId;
+
 			await invoke('sftp_create_file', { connId, path });
 			await this.refreshDirectory(path.substring(0, path.lastIndexOf('/')));
 		},
 
 		async createDirectory(path: string): Promise<void> {
-			const connId = getActiveConnectionId();
+			const session = requireActiveSession();
+			const connId = session.connectionId;
+
 			await invoke('sftp_create_dir', { connId, path });
 			await this.refreshDirectory(path.substring(0, path.lastIndexOf('/')));
 		},
 
 		async deleteEntry(path: string): Promise<void> {
-			const connId = getActiveConnectionId();
+			const session = requireActiveSession();
+			const sessionId = session.id;
+			const connId = session.connectionId;
+
 			await invoke('sftp_delete', { connId, path });
 			await this.refreshDirectory(path.substring(0, path.lastIndexOf('/')));
 
 			// Close file if open
-			updateFileState((s) => {
+			updateFileState(sessionId, (s) => {
 				if (s.openFiles.has(path)) {
 					const newOpenFiles = new Map(s.openFiles);
 					newOpenFiles.delete(path);
@@ -253,7 +338,9 @@ function createFileStore() {
 		},
 
 		async renameEntry(oldPath: string, newPath: string): Promise<void> {
-			const connId = getActiveConnectionId();
+			const session = requireActiveSession();
+			const connId = session.connectionId;
+
 			await invoke('sftp_rename', { connId, oldPath, newPath });
 			await this.refreshDirectory(oldPath.substring(0, oldPath.lastIndexOf('/')));
 		}

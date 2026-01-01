@@ -2,6 +2,7 @@
   "name": "driftcode",
   "version": "0.1.0",
   "description": "Lightweight SSH-based code editor",
+  "author": "Jordan Gonzales (Jtech Minds LLC) <https://jtechminds.com> (https://driftcoder.com)",
   "type": "module",
   "scripts": {
     "dev": "vite dev",

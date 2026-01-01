@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { workspaceStore, orderedSessions, activeSession } from '$stores/workspace';
+	import { confirmStore } from '$stores/confirm';
 	import type { Session, SessionFileState } from '$types';
 
 	interface Props {
@@ -25,9 +26,13 @@
 
 		// Check for unsaved files
 		if (hasUnsavedFiles(session.fileState)) {
-			const confirmed = confirm(
-				`"${session.displayName}" has unsaved changes. Close anyway?`
-			);
+			const confirmed = await confirmStore.confirm({
+				title: 'Close Project',
+				message: `"${session.displayName}" has unsaved changes. Close anyway?`,
+				confirmText: 'Close',
+				cancelText: 'Cancel',
+				destructive: true
+			});
 			if (!confirmed) return;
 		}
 

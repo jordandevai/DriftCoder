@@ -25,8 +25,10 @@ function getActiveSessionId(): string {
 }
 
 // Update the active session's layout state
-function updateLayoutState(updater: (state: LayoutState) => LayoutState): void {
-	const sessionId = getActiveSessionId();
+function updateLayoutState(
+	sessionId: string,
+	updater: (state: LayoutState) => LayoutState
+): void {
 	workspaceStore.updateSessionLayoutState(sessionId, updater);
 }
 
@@ -42,11 +44,15 @@ function createLayoutStore() {
 		// Subscribe to the derived state
 		subscribe: layoutStateStore.subscribe,
 
-		addPanel(panel: Omit<Panel, 'id'>, groupId?: string): string {
+		addPanelForSession(
+			sessionId: string,
+			panel: Omit<Panel, 'id'>,
+			groupId?: string
+		): string {
 			const id = generateId();
 			const fullPanel: Panel = { ...panel, id };
 
-			updateLayoutState((s) => {
+			updateLayoutState(sessionId, (s) => {
 				const targetGroupId = groupId || s.activeGroupId || 'main';
 				const group = s.groups.get(targetGroupId);
 
@@ -65,8 +71,12 @@ function createLayoutStore() {
 			return id;
 		},
 
-		removePanel(panelId: string): void {
-			updateLayoutState((s) => {
+		addPanel(panel: Omit<Panel, 'id'>, groupId?: string): string {
+			return this.addPanelForSession(getActiveSessionId(), panel, groupId);
+		},
+
+		removePanelForSession(sessionId: string, panelId: string): void {
+			updateLayoutState(sessionId, (s) => {
 				const newGroups = new Map(s.groups);
 
 				for (const [groupId, group] of newGroups) {
@@ -99,8 +109,12 @@ function createLayoutStore() {
 			});
 		},
 
-		setActivePanel(panelId: string): void {
-			updateLayoutState((s) => {
+		removePanel(panelId: string): void {
+			this.removePanelForSession(getActiveSessionId(), panelId);
+		},
+
+		setActivePanelForSession(sessionId: string, panelId: string): void {
+			updateLayoutState(sessionId, (s) => {
 				const newGroups = new Map(s.groups);
 
 				for (const [groupId, group] of newGroups) {
@@ -114,12 +128,16 @@ function createLayoutStore() {
 			});
 		},
 
-		setActiveGroup(groupId: string): void {
-			updateLayoutState((s) => ({ ...s, activeGroupId: groupId }));
+		setActivePanel(panelId: string): void {
+			this.setActivePanelForSession(getActiveSessionId(), panelId);
 		},
 
-		updatePanelTitle(panelId: string, title: string): void {
-			updateLayoutState((s) => {
+		setActiveGroup(groupId: string): void {
+			updateLayoutState(getActiveSessionId(), (s) => ({ ...s, activeGroupId: groupId }));
+		},
+
+		updatePanelTitleForSession(sessionId: string, panelId: string, title: string): void {
+			updateLayoutState(sessionId, (s) => {
 				const newGroups = new Map(s.groups);
 
 				for (const [groupId, group] of newGroups) {
@@ -135,8 +153,16 @@ function createLayoutStore() {
 			});
 		},
 
-		findPanelByFilePath(filePath: string): Panel | undefined {
-			const session = get(activeSession);
+		updatePanelTitle(panelId: string, title: string): void {
+			this.updatePanelTitleForSession(getActiveSessionId(), panelId, title);
+		},
+
+		findPanelByFilePath(filePath: string, sessionId?: string): Panel | undefined {
+			const ws = get(workspaceStore);
+			const resolvedSessionId = sessionId ?? ws.activeSessionId ?? null;
+			if (!resolvedSessionId) return undefined;
+
+			const session = ws.sessions.get(resolvedSessionId);
 			if (!session) return undefined;
 
 			for (const group of session.layoutState.groups.values()) {
@@ -146,8 +172,12 @@ function createLayoutStore() {
 			return undefined;
 		},
 
-		findPanelByTerminalId(terminalId: string): Panel | undefined {
-			const session = get(activeSession);
+		findPanelByTerminalId(terminalId: string, sessionId?: string): Panel | undefined {
+			const ws = get(workspaceStore);
+			const resolvedSessionId = sessionId ?? ws.activeSessionId ?? null;
+			if (!resolvedSessionId) return undefined;
+
+			const session = ws.sessions.get(resolvedSessionId);
 			if (!session) return undefined;
 
 			for (const group of session.layoutState.groups.values()) {
@@ -158,11 +188,14 @@ function createLayoutStore() {
 		},
 
 		setFileTreeWidth(width: number): void {
-			updateLayoutState((s) => ({ ...s, fileTreeWidth: Math.max(150, Math.min(500, width)) }));
+			updateLayoutState(getActiveSessionId(), (s) => ({
+				...s,
+				fileTreeWidth: Math.max(150, Math.min(500, width))
+			}));
 		},
 
 		toggleFileTree(): void {
-			updateLayoutState((s) => ({ ...s, fileTreeCollapsed: !s.fileTreeCollapsed }));
+			updateLayoutState(getActiveSessionId(), (s) => ({ ...s, fileTreeCollapsed: !s.fileTreeCollapsed }));
 		},
 
 		reset(): void {

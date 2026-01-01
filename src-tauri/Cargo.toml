@@ -2,7 +2,7 @@
 name = "driftcode"
 version = "0.1.0"
 description = "Lightweight SSH-based code editor"
-authors = ["DriftCode Team"]
+authors = ["Jordan Gonzales (Jtech Minds LLC)"]
 edition = "2021"
 rust-version = "1.77"
 

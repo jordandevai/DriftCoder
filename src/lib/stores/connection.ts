@@ -2,6 +2,7 @@ import { writable, derived, get } from 'svelte/store';
 import type { ConnectionState, ConnectionProfile, ActiveConnection } from '$types';
 import { invoke } from '$utils/tauri';
 import { loadSavedConnections, saveConnections } from '$utils/storage';
+import { notificationsStore } from './notifications';
 
 const initialState: ConnectionState = {
 	status: 'idle',
@@ -65,6 +66,15 @@ function createConnectionStore() {
 				await invoke('ssh_disconnect', { connId: connectionId });
 			} catch (error) {
 				console.error('Failed to disconnect:', error);
+				const profile = get({ subscribe }).activeConnections.get(connectionId)?.profile;
+				notificationsStore.notify({
+					severity: 'warning',
+					title: 'Disconnect Failed',
+					message: profile
+						? `Could not disconnect from ${profile.username}@${profile.host}:${profile.port}.`
+						: 'Could not disconnect.',
+					detail: error instanceof Error ? error.message : String(error)
+				});
 			}
 
 			update((s) => {
@@ -120,7 +130,7 @@ function createConnectionStore() {
 				const newConnections = new Map(s.activeConnections);
 				newConnections.set(connectionId, {
 					...conn,
-					sessionCount: conn.sessionCount + delta
+					sessionCount: Math.max(0, conn.sessionCount + delta)
 				});
 				return { ...s, activeConnections: newConnections };
 			});

@@ -10,6 +10,9 @@ import type {
 	PanelGroup
 } from '$types';
 import { invoke } from '$utils/tauri';
+import { sortEntries } from '$utils/file-tree';
+import { connectionStore } from './connection';
+import { notificationsStore } from './notifications';
 
 // Initial empty file state for new sessions
 function createInitialFileState(): SessionFileState {
@@ -40,15 +43,6 @@ function createInitialLayoutState(): SessionLayoutState {
 	};
 }
 
-// Sort entries: directories first, then alphabetically
-function sortEntries(entries: FileEntry[]): FileEntry[] {
-	return [...entries].sort((a, b) => {
-		if (a.isDirectory && !b.isDirectory) return -1;
-		if (!a.isDirectory && b.isDirectory) return 1;
-		return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-	});
-}
-
 const initialState: WorkspaceState = {
 	sessions: new Map(),
 	activeSessionId: null,
@@ -58,12 +52,8 @@ const initialState: WorkspaceState = {
 function createWorkspaceStore() {
 	const { subscribe, set, update } = writable<WorkspaceState>(initialState);
 
-	// Track active connections and their session counts
-	const activeConnections = writable<Map<string, { profile: ConnectionProfile; sessionCount: number }>>(new Map());
-
 	return {
 		subscribe,
-		activeConnections: { subscribe: activeConnections.subscribe },
 
 		/**
 		 * Create a new session with the given connection and project root
@@ -73,6 +63,10 @@ function createWorkspaceStore() {
 			profile: ConnectionProfile,
 			projectRoot: string
 		): Promise<string> {
+			if (!connectionStore.isConnectionActive(connectionId)) {
+				throw new Error('Connection is not active');
+			}
+
 			const sessionId = crypto.randomUUID();
 
 			// Load initial file tree
@@ -85,6 +79,12 @@ function createWorkspaceStore() {
 				tree = sortEntries(tree.filter((e) => e.isDirectory || !e.name.startsWith('.')));
 			} catch (error) {
 				console.error('Failed to load initial file tree:', error);
+				notificationsStore.notify({
+					severity: 'warning',
+					title: 'Project Loaded With Warnings',
+					message: `Connected, but failed to load the initial file tree for ${profile.host}:${projectRoot}.`,
+					detail: error instanceof Error ? error.message : String(error)
+				});
 			}
 
 			// Generate display name
@@ -114,16 +114,8 @@ function createWorkspaceStore() {
 				activeSessionId: sessionId
 			}));
 
-			// Track connection usage
-			activeConnections.update((conns) => {
-				const existing = conns.get(connectionId);
-				if (existing) {
-					conns.set(connectionId, { ...existing, sessionCount: existing.sessionCount + 1 });
-				} else {
-					conns.set(connectionId, { profile, sessionCount: 1 });
-				}
-				return new Map(conns);
-			});
+			// Keep connection sessionCount in sync for UI and lifecycle management
+			connectionStore.updateSessionCount(connectionId, +1);
 
 			return sessionId;
 		},
@@ -138,13 +130,18 @@ function createWorkspaceStore() {
 
 			const connectionId = session.connectionId;
 
-			// Close all terminals belonging to this session
-			for (const terminalId of session.terminalIds) {
-				try {
-					await invoke('terminal_close', { termId: terminalId });
-				} catch (error) {
-					console.error('Failed to close terminal:', error);
-				}
+			// Close all terminals belonging to this session (single owner: terminalStore)
+			try {
+				const { terminalStore } = await import('./terminal');
+				await terminalStore.closeSessionTerminals(sessionId);
+			} catch (error) {
+				console.error('Failed to close session terminals:', error);
+				notificationsStore.notify({
+					severity: 'warning',
+					title: 'Terminal Cleanup Failed',
+					message: 'Some terminals may not have closed cleanly.',
+					detail: error instanceof Error ? error.message : String(error)
+				});
 			}
 
 			// Remove session from state
@@ -170,21 +167,10 @@ function createWorkspaceStore() {
 			});
 
 			// Decrement connection usage and auto-disconnect if needed
-			activeConnections.update((conns) => {
-				const existing = conns.get(connectionId);
-				if (existing) {
-					if (existing.sessionCount <= 1) {
-						// Last session on this connection - disconnect
-						conns.delete(connectionId);
-						invoke('ssh_disconnect', { connId: connectionId }).catch((e) =>
-							console.error('Failed to disconnect:', e)
-						);
-					} else {
-						conns.set(connectionId, { ...existing, sessionCount: existing.sessionCount - 1 });
-					}
-				}
-				return new Map(conns);
-			});
+			connectionStore.updateSessionCount(connectionId, -1);
+			if (!this.hasSessionsOnConnection(connectionId)) {
+				await connectionStore.disconnectById(connectionId);
+			}
 		},
 
 		/**
@@ -331,7 +317,6 @@ function createWorkspaceStore() {
 		 */
 		reset(): void {
 			set(initialState);
-			activeConnections.set(new Map());
 		}
 	};
 }

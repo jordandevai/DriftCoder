@@ -6,12 +6,24 @@
 	import FileTreePanel from '$components/panels/FileTreePanel.svelte';
 	import PanelGroup from './PanelGroup.svelte';
 	import StatusBar from './StatusBar.svelte';
+	import NotificationCenter from './NotificationCenter.svelte';
+	import NotificationPopups from './NotificationPopups.svelte';
+	import ConfirmHost from './ConfirmHost.svelte';
+	import ConflictResolutionModal from '$components/modals/ConflictResolutionModal.svelte';
 	import ConnectionScreen from '$components/connection/ConnectionScreen.svelte';
 	import AddProjectModal from '$components/workspace/AddProjectModal.svelte';
 	import FolderSelectEmbedded from '$components/workspace/FolderSelectEmbedded.svelte';
 	import { workspaceStore } from '$stores/workspace';
 	import { connectionStore } from '$stores/connection';
+	import { notificationsStore } from '$stores/notifications';
 	import type { ConnectionProfile } from '$types';
+	import {
+		closeActivePanel,
+		newTerminal,
+		saveActiveFile,
+		saveAllDirtyFilesInActiveSession,
+		toggleFileTree
+	} from '$utils/commands';
 
 	let resizing = $state(false);
 	let menuCollapsed = $state(false);
@@ -40,6 +52,12 @@
 			}
 		} catch (error) {
 			console.error('Connection failed:', error);
+			notificationsStore.notify({
+				severity: 'error',
+				title: 'Connection Failed',
+				message: `Could not connect to ${profile.username}@${profile.host}:${profile.port}.`,
+				detail: error instanceof Error ? error.message : String(error)
+			});
 		}
 	}
 
@@ -79,7 +97,65 @@
 		document.removeEventListener('mousemove', handleResize);
 		document.removeEventListener('mouseup', stopResize);
 	}
+
+	function handleGlobalKeydown(e: KeyboardEvent) {
+		const mod = e.metaKey || e.ctrlKey;
+		if (!mod) return;
+
+		// Avoid double-handling when a focused component already handled the shortcut (e.g. CodeMirror Ctrl+S)
+		if (e.defaultPrevented) return;
+
+		// Only handle app-level shortcuts when a project/session exists
+		if (!$hasSessions) return;
+
+		const key = e.key.toLowerCase();
+		const code = e.code;
+
+		// Save
+		if (!e.shiftKey && key === 's') {
+			e.preventDefault();
+			saveActiveFile();
+			return;
+		}
+
+		// Save All
+		if (e.shiftKey && key === 's') {
+			e.preventDefault();
+			saveAllDirtyFilesInActiveSession();
+			return;
+		}
+
+		// Toggle file tree
+		if (!e.shiftKey && key === 'b') {
+			e.preventDefault();
+			toggleFileTree();
+			return;
+		}
+
+		// New terminal
+		if (e.shiftKey && (key === '`' || code === 'Backquote')) {
+			e.preventDefault();
+			newTerminal();
+			return;
+		}
+
+		// Close active tab/panel
+		if (!e.shiftKey && key === 'w') {
+			e.preventDefault();
+			closeActivePanel();
+			return;
+		}
+
+		// Add project
+		if (e.shiftKey && key === 'n') {
+			e.preventDefault();
+			addProjectOpen = true;
+			return;
+		}
+	}
 </script>
+
+<svelte:window onkeydown={handleGlobalKeydown} />
 
 <div class="h-full flex flex-col bg-editor-bg {resizing ? 'select-none' : ''}">
 	{#if $hasSessions}
@@ -141,4 +217,9 @@
 
 	<!-- Add Project Modal -->
 	<AddProjectModal bind:open={addProjectOpen} />
+
+	<NotificationCenter />
+	<NotificationPopups />
+	<ConfirmHost />
+	<ConflictResolutionModal />
 </div>

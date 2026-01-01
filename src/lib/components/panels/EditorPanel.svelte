@@ -1,23 +1,15 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy } from 'svelte';
 	import { fileStore } from '$stores/files';
-	import { settingsStore } from '$stores/settings';
-	import { EditorState } from '@codemirror/state';
+	import { Compartment, EditorState, type Extension } from '@codemirror/state';
 	import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from '@codemirror/view';
 	import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 	import { bracketMatching, indentOnInput, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
 	import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 	import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
-	import { javascript } from '@codemirror/lang-javascript';
-	import { python } from '@codemirror/lang-python';
-	import { rust } from '@codemirror/lang-rust';
-	import { html } from '@codemirror/lang-html';
-	import { css } from '@codemirror/lang-css';
-	import { json } from '@codemirror/lang-json';
-	import { markdown } from '@codemirror/lang-markdown';
-	import { yaml } from '@codemirror/lang-yaml';
-	import { xml } from '@codemirror/lang-xml';
-	import { sql } from '@codemirror/lang-sql';
+	import { notificationsStore } from '$stores/notifications';
+	import { conflictStore } from '$stores/conflict';
+	import { loadLanguageExtension } from '$utils/codemirror-languages';
 
 	interface Props {
 		filePath: string;
@@ -27,25 +19,12 @@
 
 	let editorContainer = $state<HTMLDivElement | null>(null);
 	let editorView: EditorView | null = null;
+	let currentLanguage = $state<string | null>(null);
+	let suppressStoreUpdate = false;
+	let languageLoadVersion = 0;
 
 	const file = $derived($fileStore.openFiles.get(filePath));
-
-	// Language extensions map
-	const languageExtensions: Record<string, () => any> = {
-		javascript: javascript,
-		typescript: () => javascript({ typescript: true }),
-		jsx: () => javascript({ jsx: true }),
-		tsx: () => javascript({ jsx: true, typescript: true }),
-		python: python,
-		rust: rust,
-		html: html,
-		css: css,
-		json: json,
-		markdown: markdown,
-		yaml: yaml,
-		xml: xml,
-		sql: sql
-	};
+	const languageCompartment = new Compartment();
 
 	// Dark theme
 	const darkTheme = EditorView.theme({
@@ -80,12 +59,21 @@
 		}
 	});
 
-	function getLanguageExtension(language: string) {
-		const factory = languageExtensions[language];
-		return factory ? factory() : [];
+	async function applyLanguage(language: string) {
+		const version = ++languageLoadVersion;
+		const extension = await loadLanguageExtension(language);
+		if (version !== languageLoadVersion) return;
+		if (!editorView) return;
+
+		editorView.dispatch({
+			effects: languageCompartment.reconfigure(extension)
+		});
+		currentLanguage = language;
 	}
 
 	function createEditor(content: string, language: string) {
+		if (!editorContainer) return;
+
 		if (editorView) {
 			editorView.destroy();
 		}
@@ -115,12 +103,13 @@
 				}
 			]),
 			EditorView.updateListener.of((update) => {
+				if (suppressStoreUpdate) return;
 				if (update.docChanged && file) {
 					const newContent = update.state.doc.toString();
 					fileStore.updateFileContent(filePath, newContent);
 				}
 			}),
-			getLanguageExtension(language)
+			languageCompartment.of([])
 		];
 
 		const state = EditorState.create({
@@ -132,6 +121,9 @@
 			state,
 			parent: editorContainer!
 		});
+
+		currentLanguage = null;
+		applyLanguage(language);
 	}
 
 	async function handleSave() {
@@ -139,19 +131,31 @@
 			await fileStore.saveFile(filePath);
 		} catch (error) {
 			if (error instanceof Error && error.message === 'CONFLICT') {
-				// TODO: Show conflict resolution modal
-				alert('File has been modified on the server. Please resolve the conflict.');
+				conflictStore.open(filePath);
+				notificationsStore.notify({
+					severity: 'warning',
+					title: 'Save Conflict',
+					message:
+						'This file changed on the server since it was opened. Your local changes are still in the editor.',
+					detail: `File: ${filePath}`,
+					actions: [
+						{
+							label: 'Resolve',
+							run: () => conflictStore.open(filePath)
+						}
+					]
+				});
 			} else {
 				console.error('Save failed:', error);
+				notificationsStore.notify({
+					severity: 'error',
+					title: 'Save Failed',
+					message: `Failed to save ${filePath}.`,
+					detail: error instanceof Error ? error.message : String(error)
+				});
 			}
 		}
 	}
-
-	onMount(() => {
-		if (file) {
-			createEditor(file.content, file.language);
-		}
-	});
 
 	onDestroy(() => {
 		if (editorView) {
@@ -159,23 +163,52 @@
 		}
 	});
 
-	// Recreate editor when file changes
+	function setEditorContent(content: string) {
+		if (!editorView) return;
+		suppressStoreUpdate = true;
+		editorView.dispatch({
+			changes: { from: 0, to: editorView.state.doc.length, insert: content }
+		});
+		suppressStoreUpdate = false;
+	}
+
+	// Keep editor instance stable across reactivity changes
 	$effect(() => {
-		if (file && editorContainer) {
-			// Only recreate if content is different from what's in the editor
-			const currentContent = editorView?.state.doc.toString();
-			if (currentContent !== file.content) {
-				createEditor(file.content, file.language);
+		if (!editorContainer) return;
+
+		// If backing file is unavailable, tear down any existing editor
+		if (!file) {
+			if (editorView) {
+				editorView.destroy();
+				editorView = null;
+				currentLanguage = null;
 			}
+			return;
+		}
+
+		// Ensure we have a live editor instance attached to the current container
+		if (!editorView || editorView.dom.parentElement !== editorContainer) {
+			createEditor(file.content, file.language);
+			return;
+		}
+
+		// Update language mode without recreating the editor
+		if (currentLanguage !== file.language) {
+			applyLanguage(file.language);
+		}
+
+		// Sync document content if it diverges from store state
+		const currentContent = editorView.state.doc.toString();
+		if (currentContent !== file.content) {
+			setEditorContent(file.content);
 		}
 	});
 </script>
 
-<div class="h-full w-full overflow-hidden">
-	{#if file}
-		<div bind:this={editorContainer} class="h-full w-full"></div>
-	{:else}
-		<div class="h-full flex items-center justify-center text-gray-500">
+<div class="h-full w-full overflow-hidden relative">
+	<div bind:this={editorContainer} class="h-full w-full"></div>
+	{#if !file}
+		<div class="absolute inset-0 flex items-center justify-center text-gray-500">
 			<p>Loading file...</p>
 		</div>
 	{/if}
