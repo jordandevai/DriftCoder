@@ -1,11 +1,14 @@
 #![allow(dead_code)]
 use crate::ssh::auth::AuthMethod;
+use crate::ssh::actor::{spawn_connection_actor, ConnectionRequest};
 use crate::ssh::client::SshConnection;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
+use tokio::sync::oneshot;
+use tokio::time::{timeout, Duration};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +46,7 @@ impl From<&str> for ConnectionError {
 /// Connect to a remote machine via SSH
 #[tauri::command]
 pub async fn ssh_connect(
+    app: AppHandle,
     state: State<'_, Arc<Mutex<AppState>>>,
     profile: ConnectionProfile,
     password: Option<String>,
@@ -86,7 +90,8 @@ pub async fn ssh_connect(
     let connection_id = Uuid::new_v4().to_string();
 
     let mut app_state = state.lock().await;
-    app_state.add_connection(connection_id.clone(), connection);
+    let handle = spawn_connection_actor(app, connection_id.clone(), connection);
+    app_state.add_connection(connection_id.clone(), handle);
 
     log::info!("SSH connection established: {}", connection_id);
 
@@ -99,10 +104,29 @@ pub async fn ssh_disconnect(
     state: State<'_, Arc<Mutex<AppState>>>,
     conn_id: String,
 ) -> Result<(), String> {
-    let mut app_state = state.lock().await;
+    let handle = {
+        let mut app_state = state.lock().await;
+        app_state.remove_connection(&conn_id)
+    };
 
-    if let Some(mut connection) = app_state.remove_connection(&conn_id) {
-        connection.disconnect().await.map_err(|e| e.to_string())?;
+    if let Some(handle) = handle {
+        let (respond_to, rx) = oneshot::channel();
+        let _ = handle
+            .tx
+            .send(ConnectionRequest::Disconnect { respond_to })
+            .await;
+
+        match timeout(Duration::from_secs(5), rx).await {
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(e))) => {
+                log::warn!("SSH disconnect error for {}: {}", conn_id, e);
+            }
+            Ok(Err(_)) | Err(_) => {
+                // Actor is unresponsive; abort to avoid leaking tasks.
+                handle.task.abort();
+            }
+        }
+
         log::info!("SSH connection closed: {}", conn_id);
     }
 
@@ -115,13 +139,21 @@ pub async fn ssh_get_home_dir(
     state: State<'_, Arc<Mutex<AppState>>>,
     conn_id: String,
 ) -> Result<String, String> {
-    let mut app_state = state.lock().await;
+    let tx = {
+        let app_state = state.lock().await;
+        app_state
+            .get_connection_sender(&conn_id)
+            .ok_or("Connection not found")?
+    };
 
-    let connection = app_state
-        .get_connection_mut(&conn_id)
-        .ok_or("Connection not found")?;
+    let (respond_to, rx) = oneshot::channel();
+    tx.send(ConnectionRequest::GetHomeDir { respond_to })
+        .await
+        .map_err(|_| "Connection is closed".to_string())?;
 
-    connection.get_home_dir().await.map_err(|e| e.to_string())
+    rx.await
+        .map_err(|_| "Connection is closed".to_string())?
+        .map_err(|e| e.to_string())
 }
 
 /// Test a connection without persisting it

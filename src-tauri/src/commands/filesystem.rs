@@ -1,8 +1,10 @@
+use crate::ssh::actor::ConnectionRequest;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Mutex;
+use tokio::sync::oneshot;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,15 +32,24 @@ pub async fn sftp_list_dir(
     conn_id: String,
     path: String,
 ) -> Result<Vec<FileEntry>, String> {
-    let mut app_state = state.lock().await;
+    let tx = {
+        let app_state = state.lock().await;
+        app_state
+            .get_connection_sender(&conn_id)
+            .ok_or("Connection not found")?
+    };
 
-    let connection = app_state
-        .get_connection_mut(&conn_id)
-        .ok_or("Connection not found")?;
+    let (respond_to, rx) = oneshot::channel();
+    tx.send(ConnectionRequest::ListDir {
+        path: path.clone(),
+        respond_to,
+    })
+    .await
+    .map_err(|_| "Connection is closed".to_string())?;
 
-    let entries = connection
-        .list_dir(&path)
+    let entries = rx
         .await
+        .map_err(|_| "Connection is closed".to_string())?
         .map_err(|e| format!("SFTP list directory failed for '{}': {}", path, e))?;
 
     let file_entries: Vec<FileEntry> = entries
@@ -68,18 +79,24 @@ pub async fn sftp_read_file(
     conn_id: String,
     path: String,
 ) -> Result<String, String> {
-    let mut app_state = state.lock().await;
+    let tx = {
+        let app_state = state.lock().await;
+        app_state
+            .get_connection_sender(&conn_id)
+            .ok_or("Connection not found")?
+    };
 
-    let connection = app_state
-        .get_connection_mut(&conn_id)
-        .ok_or("Connection not found")?;
+    let (respond_to, rx) = oneshot::channel();
+    tx.send(ConnectionRequest::ReadFile {
+        path: path.clone(),
+        respond_to,
+    })
+    .await
+    .map_err(|_| "Connection is closed".to_string())?;
 
-    let content = connection
-        .read_file(&path)
-        .await
-        .map_err(|e| format!("SFTP read file failed for '{}': {}", path, e))?;
-
-    Ok(content)
+    rx.await
+        .map_err(|_| "Connection is closed".to_string())?
+        .map_err(|e| format!("SFTP read file failed for '{}': {}", path, e))
 }
 
 /// Write content to a file
@@ -90,21 +107,37 @@ pub async fn sftp_write_file(
     path: String,
     content: String,
 ) -> Result<FileMeta, String> {
-    let mut app_state = state.lock().await;
+    let tx = {
+        let app_state = state.lock().await;
+        app_state
+            .get_connection_sender(&conn_id)
+            .ok_or("Connection not found")?
+    };
 
-    let connection = app_state
-        .get_connection_mut(&conn_id)
-        .ok_or("Connection not found")?;
+    let (respond_to, rx) = oneshot::channel();
+    tx.send(ConnectionRequest::WriteFile {
+        path: path.clone(),
+        content,
+        respond_to,
+    })
+    .await
+    .map_err(|_| "Connection is closed".to_string())?;
 
-    connection
-        .write_file(&path, &content)
-        .await
+    rx.await
+        .map_err(|_| "Connection is closed".to_string())?
         .map_err(|e| format!("SFTP write file failed for '{}': {}", path, e))?;
 
-    // Get updated file metadata
-    let stat = connection
-        .stat(&path)
+    let (respond_to, rx) = oneshot::channel();
+    tx.send(ConnectionRequest::Stat {
+        path: path.clone(),
+        respond_to,
+    })
+    .await
+    .map_err(|_| "Connection is closed".to_string())?;
+
+    let stat = rx
         .await
+        .map_err(|_| "Connection is closed".to_string())?
         .map_err(|e| format!("SFTP stat failed for '{}': {}", path, e))?;
 
     Ok(FileMeta {
@@ -121,15 +154,24 @@ pub async fn sftp_stat(
     conn_id: String,
     path: String,
 ) -> Result<FileMeta, String> {
-    let mut app_state = state.lock().await;
+    let tx = {
+        let app_state = state.lock().await;
+        app_state
+            .get_connection_sender(&conn_id)
+            .ok_or("Connection not found")?
+    };
 
-    let connection = app_state
-        .get_connection_mut(&conn_id)
-        .ok_or("Connection not found")?;
+    let (respond_to, rx) = oneshot::channel();
+    tx.send(ConnectionRequest::Stat {
+        path: path.clone(),
+        respond_to,
+    })
+    .await
+    .map_err(|_| "Connection is closed".to_string())?;
 
-    let stat = connection
-        .stat(&path)
+    let stat = rx
         .await
+        .map_err(|_| "Connection is closed".to_string())?
         .map_err(|e| format!("SFTP stat failed for '{}': {}", path, e))?;
 
     Ok(FileMeta {
@@ -146,18 +188,24 @@ pub async fn sftp_create_file(
     conn_id: String,
     path: String,
 ) -> Result<(), String> {
-    let mut app_state = state.lock().await;
+    let tx = {
+        let app_state = state.lock().await;
+        app_state
+            .get_connection_sender(&conn_id)
+            .ok_or("Connection not found")?
+    };
 
-    let connection = app_state
-        .get_connection_mut(&conn_id)
-        .ok_or("Connection not found")?;
+    let (respond_to, rx) = oneshot::channel();
+    tx.send(ConnectionRequest::CreateFile {
+        path: path.clone(),
+        respond_to,
+    })
+    .await
+    .map_err(|_| "Connection is closed".to_string())?;
 
-    connection
-        .create_file(&path)
-        .await
-        .map_err(|e| format!("SFTP create file failed for '{}': {}", path, e))?;
-
-    Ok(())
+    rx.await
+        .map_err(|_| "Connection is closed".to_string())?
+        .map_err(|e| format!("SFTP create file failed for '{}': {}", path, e))
 }
 
 /// Create a new directory
@@ -167,18 +215,24 @@ pub async fn sftp_create_dir(
     conn_id: String,
     path: String,
 ) -> Result<(), String> {
-    let mut app_state = state.lock().await;
+    let tx = {
+        let app_state = state.lock().await;
+        app_state
+            .get_connection_sender(&conn_id)
+            .ok_or("Connection not found")?
+    };
 
-    let connection = app_state
-        .get_connection_mut(&conn_id)
-        .ok_or("Connection not found")?;
+    let (respond_to, rx) = oneshot::channel();
+    tx.send(ConnectionRequest::CreateDir {
+        path: path.clone(),
+        respond_to,
+    })
+    .await
+    .map_err(|_| "Connection is closed".to_string())?;
 
-    connection
-        .create_dir(&path)
-        .await
-        .map_err(|e| format!("SFTP create directory failed for '{}': {}", path, e))?;
-
-    Ok(())
+    rx.await
+        .map_err(|_| "Connection is closed".to_string())?
+        .map_err(|e| format!("SFTP create directory failed for '{}': {}", path, e))
 }
 
 /// Delete a file or directory
@@ -188,18 +242,24 @@ pub async fn sftp_delete(
     conn_id: String,
     path: String,
 ) -> Result<(), String> {
-    let mut app_state = state.lock().await;
+    let tx = {
+        let app_state = state.lock().await;
+        app_state
+            .get_connection_sender(&conn_id)
+            .ok_or("Connection not found")?
+    };
 
-    let connection = app_state
-        .get_connection_mut(&conn_id)
-        .ok_or("Connection not found")?;
+    let (respond_to, rx) = oneshot::channel();
+    tx.send(ConnectionRequest::Delete {
+        path: path.clone(),
+        respond_to,
+    })
+    .await
+    .map_err(|_| "Connection is closed".to_string())?;
 
-    connection
-        .delete(&path)
-        .await
-        .map_err(|e| format!("SFTP delete failed for '{}': {}", path, e))?;
-
-    Ok(())
+    rx.await
+        .map_err(|_| "Connection is closed".to_string())?
+        .map_err(|e| format!("SFTP delete failed for '{}': {}", path, e))
 }
 
 /// Rename/move a file or directory
@@ -210,16 +270,23 @@ pub async fn sftp_rename(
     old_path: String,
     new_path: String,
 ) -> Result<(), String> {
-    let mut app_state = state.lock().await;
+    let tx = {
+        let app_state = state.lock().await;
+        app_state
+            .get_connection_sender(&conn_id)
+            .ok_or("Connection not found")?
+    };
 
-    let connection = app_state
-        .get_connection_mut(&conn_id)
-        .ok_or("Connection not found")?;
+    let (respond_to, rx) = oneshot::channel();
+    tx.send(ConnectionRequest::Rename {
+        old_path: old_path.clone(),
+        new_path: new_path.clone(),
+        respond_to,
+    })
+    .await
+    .map_err(|_| "Connection is closed".to_string())?;
 
-    connection
-        .rename(&old_path, &new_path)
-        .await
-        .map_err(|e| format!("SFTP rename failed ('{}' -> '{}'): {}", old_path, new_path, e))?;
-
-    Ok(())
+    rx.await
+        .map_err(|_| "Connection is closed".to_string())?
+        .map_err(|e| format!("SFTP rename failed ('{}' -> '{}'): {}", old_path, new_path, e))
 }
