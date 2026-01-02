@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use crate::ssh::auth::AuthMethod;
 use crate::ssh::client::SshConnection;
+use crate::ssh::runtime;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -47,6 +48,9 @@ pub async fn ssh_connect(
     profile: ConnectionProfile,
     password: Option<String>,
 ) -> Result<String, String> {
+    let state = state.inner().clone();
+
+    runtime::spawn(async move {
     let auth = match profile.auth_method.as_str() {
         "key" => {
             let key_path = profile
@@ -91,6 +95,9 @@ pub async fn ssh_connect(
     log::info!("SSH connection established: {}", connection_id);
 
     Ok(connection_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Disconnect from a remote machine
@@ -99,6 +106,9 @@ pub async fn ssh_disconnect(
     state: State<'_, Arc<Mutex<AppState>>>,
     conn_id: String,
 ) -> Result<(), String> {
+    let state = state.inner().clone();
+
+    runtime::spawn(async move {
     let mut app_state = state.lock().await;
 
     if let Some(mut connection) = app_state.remove_connection(&conn_id) {
@@ -107,6 +117,9 @@ pub async fn ssh_disconnect(
     }
 
     Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Get the home directory for the current connection
@@ -115,6 +128,9 @@ pub async fn ssh_get_home_dir(
     state: State<'_, Arc<Mutex<AppState>>>,
     conn_id: String,
 ) -> Result<String, String> {
+    let state = state.inner().clone();
+
+    runtime::spawn(async move {
     let mut app_state = state.lock().await;
 
     let connection = app_state
@@ -122,6 +138,9 @@ pub async fn ssh_get_home_dir(
         .ok_or("Connection not found")?;
 
     connection.get_home_dir().await.map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Test a connection without persisting it
@@ -130,6 +149,7 @@ pub async fn ssh_test_connection(
     profile: ConnectionProfile,
     password: Option<String>,
 ) -> Result<bool, String> {
+    runtime::spawn(async move {
     let auth = match profile.auth_method.as_str() {
         "key" => {
             let key_path = profile
@@ -165,4 +185,7 @@ pub async fn ssh_test_connection(
             Err(e.to_string())
         }
     }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

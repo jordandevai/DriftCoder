@@ -3,6 +3,7 @@ use tauri::{AppHandle, Emitter};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
+use crate::ssh::runtime;
 
 /// Escape a path for use in shell commands
 fn shell_escape(s: &str) -> String {
@@ -48,8 +49,8 @@ impl PtySession {
         let mut channel_stream = channel.into_stream();
         let initial_dir = working_dir.clone();
 
-        // Spawn a task to handle reading from the channel
-        tokio::spawn(async move {
+        // Spawn a task to handle reading from the channel (must outlive the command invocation on mobile)
+        runtime::spawn(async move {
             let mut buffer = vec![0u8; 4096];
 
             // Send initial cd command if working directory is specified
