@@ -187,6 +187,24 @@
 		<div class="flex gap-1">
 			<button
 				class="p-1 rounded hover:bg-sidebar-hover transition-colors"
+				title="Expand all (loaded)"
+				onclick={() => fileStore.expandAllLoaded()}
+			>
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7M4 5l7 7-7 7" />
+				</svg>
+			</button>
+			<button
+				class="p-1 rounded hover:bg-sidebar-hover transition-colors"
+				title="Collapse all"
+				onclick={() => fileStore.collapseAll()}
+			>
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+				</svg>
+			</button>
+			<button
+				class="p-1 rounded hover:bg-sidebar-hover transition-colors"
 				title="New File"
 				onclick={() => startCreate('file', $fileStore.projectRoot)}
 			>

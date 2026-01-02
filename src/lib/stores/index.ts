@@ -1,6 +1,7 @@
 export { connectionStore, connectionError, isConnecting, hasActiveConnections, activeConnectionsList } from './connection';
 export { confirmStore } from './confirm';
 export { conflictStore } from './conflict';
+export { diagnosticsStore } from './diagnostics';
 export { debugStore, isTraceEnabled, traceHistory } from './debug';
 export { fileStore, openFiles, activeFile, hasUnsavedFiles } from './files';
 export { layoutStore, activeGroup, activePanel, allPanels } from './layout';

@@ -142,9 +142,9 @@
 	}
 </script>
 
-<div class="flex gap-4 h-[450px]">
+<div class="flex flex-col sm:flex-row gap-4 h-[70vh] sm:h-[450px]">
 	<!-- Sidebar: Shortcuts & Bookmarks -->
-	<div class="w-44 flex-shrink-0 space-y-3 overflow-y-auto">
+	<div class="w-full sm:w-44 flex-shrink-0 space-y-3 overflow-y-auto">
 		<!-- Quick Access -->
 		<div>
 			<p class="text-xs text-gray-500 uppercase tracking-wide mb-1.5">Quick Access</p>

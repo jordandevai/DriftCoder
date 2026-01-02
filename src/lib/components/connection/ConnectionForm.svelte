@@ -113,14 +113,7 @@
 	</div>
 
 	<form class="p-4 space-y-4" onsubmit={handleSubmit}>
-		<Input label="Connection Name" placeholder="My Server" bind:value={name} />
-
-		<div class="grid grid-cols-3 gap-4">
-			<div class="col-span-2">
-				<Input label="Host" placeholder="192.168.1.100" bind:value={host} required />
-			</div>
-			<Input label="Port" type="number" bind:value={port} required />
-		</div>
+		<Input label="Host" placeholder="192.168.1.100" bind:value={host} required />
 
 		<Input label="Username" placeholder="user" bind:value={username} required />
 
@@ -157,30 +150,43 @@
 			<Input label="Password" type="password" bind:value={password} required />
 		{/if}
 
-		<!-- Save checkbox -->
-		<label class="flex items-center gap-2 cursor-pointer">
-			<input type="checkbox" bind:checked={saveConnection} class="text-accent rounded" />
-			<span class="text-sm text-gray-400">Save this connection</span>
-		</label>
+		<details class="bg-editor-bg border border-panel-border rounded-lg p-3">
+			<summary class="cursor-pointer text-sm text-gray-300 select-none">Advanced</summary>
+			<div class="pt-3 space-y-3">
+				<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+					<div class="sm:col-span-2">
+						<Input label="Connection Name" placeholder="My Server" bind:value={name} />
+					</div>
+					<Input label="Port" type="number" bind:value={port} required />
+				</div>
 
-		<!-- Test result -->
-		{#if testResult}
-			<div
-				class="p-3 rounded text-sm {testResult === 'success'
-					? 'bg-success/10 text-success border border-success'
-					: 'bg-error/10 text-error border border-error'}"
-			>
-				{#if testResult === 'success'}
-					Connection successful!
-				{:else}
-					Connection failed{testError ? `: ${testError}` : ''}
-				{/if}
+				<!-- Save checkbox -->
+				<label class="flex items-center gap-2 cursor-pointer">
+					<input type="checkbox" bind:checked={saveConnection} class="text-accent rounded" />
+					<span class="text-sm text-gray-400">Save this connection</span>
+				</label>
+
+				<div class="flex items-center gap-3">
+					<Button variant="secondary" onclick={handleTest} loading={testing}>Test</Button>
+					{#if testResult}
+						<div
+							class="flex-1 p-3 rounded text-sm {testResult === 'success'
+								? 'bg-success/10 text-success border border-success'
+								: 'bg-error/10 text-error border border-error'}"
+						>
+							{#if testResult === 'success'}
+								Connection successful!
+							{:else}
+								Connection failed{testError ? `: ${testError}` : ''}
+							{/if}
+						</div>
+					{/if}
+				</div>
 			</div>
-		{/if}
+		</details>
 
 		<!-- Actions -->
 		<div class="flex gap-3 pt-2">
-			<Button variant="secondary" onclick={handleTest} loading={testing}>Test</Button>
 			<div class="flex-1"></div>
 			<Button variant="ghost" onclick={onclose}>Cancel</Button>
 			<Button type="submit">Connect</Button>

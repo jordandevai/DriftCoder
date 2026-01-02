@@ -26,6 +26,26 @@ function addChildrenToTree(tree: FileEntry[], parentPath: string, children: File
 	});
 }
 
+function findEntry(tree: FileEntry[], path: string): FileEntry | null {
+	for (const entry of tree) {
+		if (entry.path === path) return entry;
+		if (entry.children) {
+			const found = findEntry(entry.children, path);
+			if (found) return found;
+		}
+	}
+	return null;
+}
+
+function collectDirectoryPaths(tree: FileEntry[], out: Set<string>): void {
+	for (const entry of tree) {
+		if (entry.isDirectory) {
+			out.add(entry.path);
+			if (entry.children) collectDirectoryPaths(entry.children, out);
+		}
+	}
+}
+
 function requireActiveSession() {
 	const session = get(activeSession);
 	if (!session) {
@@ -92,6 +112,17 @@ function createFileStore() {
 			const sessionId = session.id;
 			const connId = session.connectionId;
 
+			// If we've already loaded children for this directory, expanding should not refetch.
+			const existing = findEntry(session.fileState.tree, path);
+			if (existing?.children) {
+				updateFileState(sessionId, (s) => {
+					const newExpanded = new Set(s.expandedPaths);
+					newExpanded.add(path);
+					return { ...s, expandedPaths: newExpanded };
+				});
+				return;
+			}
+
 			const entries = await invoke<FileEntry[]>('sftp_list_dir', { connId, path });
 			const sortedEntries = sortEntries(entries);
 
@@ -127,6 +158,23 @@ function createFileStore() {
 			} else {
 				this.expandDirectory(path);
 			}
+		},
+
+		collapseAll(): void {
+			const session = get(activeSession);
+			if (!session) return;
+			updateFileState(session.id, (s) => ({ ...s, expandedPaths: new Set([session.projectRoot]) }));
+		},
+
+		expandAllLoaded(): void {
+			const session = get(activeSession);
+			if (!session) return;
+			updateFileState(session.id, (s) => {
+				const expanded = new Set(s.expandedPaths);
+				expanded.add(session.projectRoot);
+				collectDirectoryPaths(s.tree, expanded);
+				return { ...s, expandedPaths: expanded };
+			});
 		},
 
 		async openFile(path: string): Promise<void> {

@@ -57,16 +57,7 @@ function createDebugStore() {
 							return { ...s, traces: newTraces };
 						});
 
-						// Show as notification
-						const title = `[${trace.category}:${trace.step}]`;
-						const severity = trace.isError ? 'warning' : 'info';
-
-						notificationsStore.notify({
-							severity,
-							title,
-							message: trace.message,
-							detail: trace.detail || undefined
-						});
+						// Intentionally do not surface every trace as a notification.
 					});
 				}
 
@@ -154,15 +145,7 @@ function createDebugStore() {
 						return { ...s, traces: newTraces };
 					});
 
-					const title = `[${trace.category}:${trace.step}]`;
-					const severity = trace.isError ? 'warning' : 'info';
-
-					notificationsStore.notify({
-						severity,
-						title,
-						message: trace.message,
-						detail: trace.detail || undefined
-					});
+					// Intentionally do not surface every trace as a notification.
 				});
 			}
 		},

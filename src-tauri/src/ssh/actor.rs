@@ -409,6 +409,8 @@ fn is_fatal_connection_error(error: &SshError) -> bool {
         SshError::TcpConnectTimeout { .. } => true,
         SshError::HandshakeFailed { .. } => true,
         SshError::HandshakeJoinAborted { .. } => true,
+        SshError::HostKeyUntrusted { .. } => true,
+        SshError::HostKeyMismatch { .. } => true,
         SshError::ConnectionFailed(_) => true,
         SshError::AuthenticationFailed(_) => true,
         SshError::ChannelError(_) => true,

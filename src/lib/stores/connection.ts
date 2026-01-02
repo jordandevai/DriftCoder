@@ -1,8 +1,9 @@
 import { writable, derived, get } from 'svelte/store';
 import type { ConnectionState, ConnectionProfile, ActiveConnection } from '$types';
-import { invoke, isTauri, listen } from '$utils/tauri';
+import { invoke, isTauri, listen, TauriCommandError } from '$utils/tauri';
 import { loadSavedConnections, saveConnections } from '$utils/storage';
 import { notificationsStore } from './notifications';
+import { confirmStore } from './confirm';
 
 const initialState: ConnectionState = {
 	status: 'idle',
@@ -10,6 +11,66 @@ const initialState: ConnectionState = {
 	savedProfiles: [],
 	error: null
 };
+
+type HostKeyContext =
+	| {
+			host: string;
+			port: number;
+			keyType: string;
+			fingerprintSha256: string;
+			publicKeyOpenssh: string;
+	  }
+	| {
+			host: string;
+			port: number;
+			keyType: string;
+			expectedFingerprintSha256: string;
+			actualFingerprintSha256: string;
+			expectedPublicKeyOpenssh: string;
+			actualPublicKeyOpenssh: string;
+	  };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return !!value && typeof value === 'object';
+}
+
+function parseHostKeyContext(context: unknown): HostKeyContext | null {
+	if (!isRecord(context)) return null;
+	if (typeof context.host !== 'string') return null;
+	if (typeof context.port !== 'number') return null;
+	if (typeof context.keyType !== 'string') return null;
+
+	// untrusted
+	if (typeof context.fingerprintSha256 === 'string' && typeof context.publicKeyOpenssh === 'string') {
+		return {
+			host: context.host,
+			port: context.port,
+			keyType: context.keyType,
+			fingerprintSha256: context.fingerprintSha256,
+			publicKeyOpenssh: context.publicKeyOpenssh
+		};
+	}
+
+	// mismatch
+	if (
+		typeof context.expectedFingerprintSha256 === 'string' &&
+		typeof context.actualFingerprintSha256 === 'string' &&
+		typeof context.expectedPublicKeyOpenssh === 'string' &&
+		typeof context.actualPublicKeyOpenssh === 'string'
+	) {
+		return {
+			host: context.host,
+			port: context.port,
+			keyType: context.keyType,
+			expectedFingerprintSha256: context.expectedFingerprintSha256,
+			actualFingerprintSha256: context.actualFingerprintSha256,
+			expectedPublicKeyOpenssh: context.expectedPublicKeyOpenssh,
+			actualPublicKeyOpenssh: context.actualPublicKeyOpenssh
+		};
+	}
+
+	return null;
+}
 
 function createConnectionStore() {
 	const { subscribe, set, update } = writable<ConnectionState>(initialState);
@@ -25,11 +86,85 @@ function createConnectionStore() {
 		async connect(profile: ConnectionProfile, password?: string): Promise<string> {
 			update((s) => ({ ...s, status: 'connecting', error: null }));
 
-			try {
-				const connectionId = await invoke<string>('ssh_connect', {
+			const connectOnce = async (): Promise<string> =>
+				await invoke<string>('ssh_connect', {
 					profile,
 					password
 				});
+
+			try {
+				let connectionId: string;
+				try {
+					connectionId = await connectOnce();
+				} catch (error) {
+					if (error instanceof TauriCommandError && error.code === 'ssh_hostkey_untrusted') {
+						const ctx = parseHostKeyContext(error.context);
+						if (ctx && 'fingerprintSha256' in ctx) {
+							const confirmed = await confirmStore.confirm({
+								title: 'Trust Host Key?',
+								message:
+									`The SSH server ${ctx.host}:${ctx.port} is presenting an untrusted host key.\n\n` +
+									`Only trust this key if you are sure you’re connecting to the right machine.`,
+								detail: `${ctx.keyType} ${ctx.fingerprintSha256}\n\n${ctx.publicKeyOpenssh}`,
+								confirmText: 'Trust & Connect',
+								cancelText: 'Cancel'
+							});
+							if (confirmed) {
+								await invoke('ssh_trust_host_key', {
+									request: {
+										host: ctx.host,
+										port: ctx.port,
+										keyType: ctx.keyType,
+										fingerprintSha256: ctx.fingerprintSha256,
+										publicKeyOpenssh: ctx.publicKeyOpenssh
+									}
+								});
+								connectionId = await connectOnce();
+							} else {
+								throw error;
+							}
+						} else {
+							throw error;
+						}
+					} else if (error instanceof TauriCommandError && error.code === 'ssh_hostkey_mismatch') {
+						const ctx = parseHostKeyContext(error.context);
+						if (ctx && 'expectedFingerprintSha256' in ctx) {
+							const confirmed = await confirmStore.confirm({
+								title: 'Host Key Changed',
+								message:
+									`WARNING: The host key for ${ctx.host}:${ctx.port} has changed.\n\n` +
+									`This can indicate a man-in-the-middle attack, or that the server was reinstalled.\n\n` +
+									`Replace the saved key only if you’re sure this is expected.`,
+								detail:
+									`Expected: ${ctx.expectedFingerprintSha256}\n` +
+									`Actual:   ${ctx.actualFingerprintSha256}\n\n` +
+									`New key:\n${ctx.actualPublicKeyOpenssh}`,
+								confirmText: 'Replace Key & Connect',
+								cancelText: 'Cancel',
+								destructive: true
+							});
+							if (confirmed) {
+								await invoke('ssh_forget_host_key', { host: ctx.host, port: ctx.port });
+								await invoke('ssh_trust_host_key', {
+									request: {
+										host: ctx.host,
+										port: ctx.port,
+										keyType: ctx.keyType,
+										fingerprintSha256: ctx.actualFingerprintSha256,
+										publicKeyOpenssh: ctx.actualPublicKeyOpenssh
+									}
+								});
+								connectionId = await connectOnce();
+							} else {
+								throw error;
+							}
+						} else {
+							throw error;
+						}
+					} else {
+						throw error;
+					}
+				}
 
 				const activeConn: ActiveConnection = {
 					id: connectionId,

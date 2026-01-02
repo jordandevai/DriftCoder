@@ -7,7 +7,7 @@
 	import PanelGroup from './PanelGroup.svelte';
 	import StatusBar from './StatusBar.svelte';
 	import NotificationCenter from './NotificationCenter.svelte';
-	import NotificationPopups from './NotificationPopups.svelte';
+	import DiagnosticsModal from './DiagnosticsModal.svelte';
 	import ConfirmHost from './ConfirmHost.svelte';
 	import ConflictResolutionModal from '$components/modals/ConflictResolutionModal.svelte';
 	import ConnectionScreen from '$components/connection/ConnectionScreen.svelte';
@@ -219,7 +219,7 @@
 	<AddProjectModal bind:open={addProjectOpen} />
 
 	<NotificationCenter />
-	<NotificationPopups />
+	<DiagnosticsModal />
 	<ConfirmHost />
 	<ConflictResolutionModal />
 </div>

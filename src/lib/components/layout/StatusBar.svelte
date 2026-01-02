@@ -4,7 +4,7 @@
 	import { activeFile } from '$stores/files';
 	import { terminalStore } from '$stores/terminal';
 	import { notificationsStore, unreadCount } from '$stores/notifications';
-	import { debugStore, isTraceEnabled } from '$stores/debug';
+	import { diagnosticsStore } from '$stores/diagnostics';
 	import { getLanguageLabel } from '$utils/languages';
 
 	interface Props {
@@ -109,26 +109,22 @@
 	<!-- Spacer -->
 	<div class="flex-1"></div>
 
-	<!-- Debug Trace Toggle -->
+	<!-- Diagnostics -->
 	<button
 		class="flex items-center gap-1 px-2 py-0.5 hover:bg-white/10 rounded transition-colors"
-		class:bg-warning={$isTraceEnabled}
-		class:text-black={$isTraceEnabled}
-		onclick={() => debugStore.toggleTrace()}
-		title={$isTraceEnabled ? 'Disable connection tracing' : 'Enable connection tracing'}
-		aria-label="Toggle connection tracing"
+		onclick={() => diagnosticsStore.open()}
+		title="Diagnostics"
+		aria-label="Diagnostics"
 	>
 		<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 			<path
 				stroke-linecap="round"
 				stroke-linejoin="round"
 				stroke-width="2"
-				d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+				d="M9 17v-2a4 4 0 014-4h2M9 7h.01M15 7h.01M9 12h6"
 			/>
 		</svg>
-		{#if $isTraceEnabled}
-			<span class="text-[10px]">TRACE</span>
-		{/if}
+		<span class="text-[10px]">DIAG</span>
 	</button>
 
 	<!-- Notifications -->

@@ -3,10 +3,13 @@ use crate::ipc_error::IpcError;
 use crate::ssh::auth::AuthMethod;
 use crate::ssh::actor::{spawn_connection_actor, ConnectionRequest};
 use crate::ssh::client::{SshConnection, SshError};
+use crate::ssh::known_hosts;
 use crate::state::AppState;
 use crate::trace::{emit_trace, TraceEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use ssh_key::HashAlg;
+use ssh_key::PublicKey as SshPublicKey;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
@@ -72,6 +75,46 @@ fn map_connect_error(profile: &ConnectionProfile, error: SshError) -> IpcError {
             "profile": base_context,
             "handshake": diag,
         })),
+        SshError::HostKeyUntrusted {
+            host,
+            port,
+            key_type,
+            fingerprint_sha256,
+            public_key_openssh,
+        } => IpcError::new(
+            "ssh_hostkey_untrusted",
+            "The server's host key is not trusted yet.",
+        )
+        .with_context(json!({
+            "host": host,
+            "port": port,
+            "keyType": key_type,
+            "fingerprintSha256": fingerprint_sha256,
+            "publicKeyOpenssh": public_key_openssh,
+            "profile": base_context,
+        })),
+        SshError::HostKeyMismatch {
+            host,
+            port,
+            key_type,
+            expected_fingerprint_sha256,
+            actual_fingerprint_sha256,
+            expected_public_key_openssh,
+            actual_public_key_openssh,
+        } => IpcError::new(
+            "ssh_hostkey_mismatch",
+            "The server's host key has changed (possible MITM).",
+        )
+        .with_context(json!({
+            "host": host,
+            "port": port,
+            "keyType": key_type,
+            "expectedFingerprintSha256": expected_fingerprint_sha256,
+            "actualFingerprintSha256": actual_fingerprint_sha256,
+            "expectedPublicKeyOpenssh": expected_public_key_openssh,
+            "actualPublicKeyOpenssh": actual_public_key_openssh,
+            "profile": base_context,
+        })),
         SshError::AuthenticationFailed(source) => IpcError::new(
             "ssh_auth_failed",
             "SSH authentication failed. Verify username and credentials.",
@@ -116,7 +159,7 @@ pub async fn ssh_connect(
         profile.port,
         &profile.username,
         auth,
-        Some(&app),
+        &app,
     )
     .await
     .map_err(|e| map_connect_error(&profile, e))?;
@@ -241,7 +284,7 @@ pub async fn ssh_test_connection(
 
     emit_trace(&app, TraceEvent::new("test", "start", &format!("Testing connection to {}:{}", profile.host, profile.port)));
 
-    match SshConnection::connect(&profile.host, profile.port, &profile.username, auth, Some(&app)).await {
+    match SshConnection::connect(&profile.host, profile.port, &profile.username, auth, &app).await {
         Ok(mut conn) => {
             emit_trace(&app, TraceEvent::new("sftp", "verify", "Verifying SFTP availability (test)"));
             if let Err(e) = conn.get_home_dir().await {
@@ -276,4 +319,78 @@ pub async fn ssh_test_connection(
             Err(map_connect_error(&profile, e))
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrustHostKeyRequest {
+    pub host: String,
+    pub port: u16,
+    pub key_type: String,
+    pub fingerprint_sha256: String,
+    pub public_key_openssh: String,
+}
+
+/// List all trusted host keys.
+#[tauri::command]
+pub async fn ssh_list_trusted_host_keys(
+    app: AppHandle,
+) -> Result<Vec<known_hosts::KnownHostEntry>, IpcError> {
+    known_hosts::list(&app)
+        .await
+        .map_err(|e| IpcError::new("hostkey_store_failed", "Failed to read trusted host keys").with_raw(e))
+}
+
+/// Persist a trusted host key for `host:port`.
+#[tauri::command]
+pub async fn ssh_trust_host_key(app: AppHandle, request: TrustHostKeyRequest) -> Result<(), IpcError> {
+    let parsed = SshPublicKey::from_openssh(&request.public_key_openssh).map_err(|e| {
+        IpcError::new("invalid_public_key", "Invalid public key format").with_raw(e.to_string())
+    })?;
+
+    let computed = parsed.fingerprint(HashAlg::Sha256).to_string();
+    if computed != request.fingerprint_sha256 {
+        return Err(
+            IpcError::new("hostkey_fingerprint_mismatch", "Fingerprint does not match provided public key")
+                .with_context(json!({
+                    "computed": computed,
+                    "provided": request.fingerprint_sha256,
+                    "host": request.host,
+                    "port": request.port,
+                })),
+        );
+    }
+
+    known_hosts::upsert(
+        &app,
+        &request.host,
+        request.port,
+        &request.key_type,
+        &request.fingerprint_sha256,
+        &request.public_key_openssh,
+    )
+    .await
+    .map_err(|e| IpcError::new("hostkey_store_failed", "Failed to save trusted host key").with_raw(e))?;
+
+    emit_trace(
+        &app,
+        TraceEvent::new("hostkey", "trusted_saved", "Trusted host key saved")
+            .with_detail(format!("{}:{} {}", request.host, request.port, request.fingerprint_sha256)),
+    );
+
+    Ok(())
+}
+
+/// Forget a previously trusted host key for `host:port`.
+#[tauri::command]
+pub async fn ssh_forget_host_key(app: AppHandle, host: String, port: u16) -> Result<(), IpcError> {
+    known_hosts::remove(&app, &host, port)
+        .await
+        .map_err(|e| IpcError::new("hostkey_store_failed", "Failed to remove trusted host key").with_raw(e))?;
+    emit_trace(
+        &app,
+        TraceEvent::new("hostkey", "trusted_removed", "Trusted host key removed")
+            .with_detail(format!("{}:{}", host, port)),
+    );
+    Ok(())
 }

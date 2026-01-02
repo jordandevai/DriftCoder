@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { connectionStore } from '$stores/connection';
 	import { notificationsStore, unreadCount } from '$stores/notifications';
-	import { debugStore, isTraceEnabled } from '$stores/debug';
+	import { diagnosticsStore } from '$stores/diagnostics';
 	import ConnectionForm from './ConnectionForm.svelte';
 	import ConnectionList from './ConnectionList.svelte';
 	import type { ConnectionProfile } from '$types';
@@ -45,28 +45,20 @@
 <div class="h-full flex flex-col items-center justify-center p-8 bg-editor-bg relative">
 	<!-- Floating toolbar: Debug + Notifications -->
 	<div class="absolute top-4 right-4 flex items-center gap-2">
-		<!-- Debug Trace Toggle -->
 		<button
-			class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-sm"
-			class:bg-warning={$isTraceEnabled}
-			class:text-black={$isTraceEnabled}
-			class:bg-panel-bg={!$isTraceEnabled}
-			class:text-gray-400={!$isTraceEnabled}
-			class:hover:bg-panel-border={!$isTraceEnabled}
-			onclick={() => debugStore.toggleTrace()}
-			title={$isTraceEnabled ? 'Disable connection tracing' : 'Enable connection tracing'}
+			class="flex items-center gap-1.5 px-3 py-1.5 bg-panel-bg hover:bg-panel-border rounded-lg transition-colors text-gray-400 text-sm"
+			onclick={() => diagnosticsStore.open()}
+			title="Open diagnostics"
 		>
 			<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 				<path
 					stroke-linecap="round"
 					stroke-linejoin="round"
 					stroke-width="2"
-					d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+					d="M9 17v-2a4 4 0 014-4h2M9 7h.01M15 7h.01M9 12h6m2 9H7a2 2 0 01-2-2V5a2 2 0 012-2h10a2 2 0 012 2v14a2 2 0 01-2 2z"
 				/>
 			</svg>
-			{#if $isTraceEnabled}
-				<span>Tracing</span>
-			{/if}
+			<span class="hidden sm:inline">Diagnostics</span>
 		</button>
 
 		<!-- Notifications -->

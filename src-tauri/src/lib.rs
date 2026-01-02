@@ -28,6 +28,9 @@ pub fn run() {
             commands::connection::ssh_disconnect,
             commands::connection::ssh_get_home_dir,
             commands::connection::ssh_test_connection,
+            commands::connection::ssh_list_trusted_host_keys,
+            commands::connection::ssh_trust_host_key,
+            commands::connection::ssh_forget_host_key,
             // File system commands
             commands::filesystem::sftp_list_dir,
             commands::filesystem::sftp_read_file,

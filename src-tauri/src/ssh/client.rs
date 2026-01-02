@@ -1,5 +1,6 @@
 use crate::diagnostics;
 use crate::ssh::auth::AuthMethod;
+use crate::ssh::known_hosts;
 use crate::ssh::pty::PtySession;
 use crate::ssh::sftp::{SftpEntry, SftpStat};
 use crate::trace::{emit_trace, TraceEvent};
@@ -10,6 +11,7 @@ use russh_sftp::client::error::Error as SftpClientError;
 use russh_sftp::client::SftpSession;
 use serde::Serialize;
 use ssh_key::public::PublicKey;
+use ssh_key::HashAlg;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
@@ -190,6 +192,24 @@ pub enum SshError {
         #[allow(dead_code)]
         diag: Option<HandshakeDiag>,
     },
+    #[error("Untrusted host key for {host}:{port} ({fingerprint_sha256})")]
+    HostKeyUntrusted {
+        host: String,
+        port: u16,
+        key_type: String,
+        fingerprint_sha256: String,
+        public_key_openssh: String,
+    },
+    #[error("Host key mismatch for {host}:{port} (expected {expected_fingerprint_sha256}, got {actual_fingerprint_sha256})")]
+    HostKeyMismatch {
+        host: String,
+        port: u16,
+        key_type: String,
+        expected_fingerprint_sha256: String,
+        actual_fingerprint_sha256: String,
+        expected_public_key_openssh: String,
+        actual_public_key_openssh: String,
+    },
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
     #[error("Authentication failed: {0}")]
@@ -207,19 +227,93 @@ pub enum SshError {
 }
 
 /// SSH client handler
-struct ClientHandler;
+#[derive(Clone)]
+struct ClientHandler {
+    app: AppHandle,
+    host: String,
+    port: u16,
+    correlation_id: String,
+}
+
+#[derive(Debug, Error)]
+enum ClientError {
+    #[error(transparent)]
+    Russh(#[from] russh::Error),
+    #[error("Host key store error: {0}")]
+    HostKeyStore(String),
+    #[error("Host key untrusted: {host}:{port} {fingerprint_sha256}")]
+    HostKeyUntrusted {
+        host: String,
+        port: u16,
+        key_type: String,
+        fingerprint_sha256: String,
+        public_key_openssh: String,
+    },
+    #[error("Host key mismatch: {host}:{port} expected={expected_fingerprint_sha256} got={actual_fingerprint_sha256}")]
+    HostKeyMismatch {
+        host: String,
+        port: u16,
+        key_type: String,
+        expected_fingerprint_sha256: String,
+        actual_fingerprint_sha256: String,
+        expected_public_key_openssh: String,
+        actual_public_key_openssh: String,
+    },
+}
 
 #[async_trait]
 impl Handler for ClientHandler {
-    type Error = russh::Error;
+    type Error = ClientError;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &PublicKey,
+        server_public_key: &PublicKey,
     ) -> Result<bool, Self::Error> {
-        // TODO: Implement proper host key verification
-        // For now, accept all keys (not secure for production)
-        Ok(true)
+        let key_type = server_public_key.algorithm().as_str().to_string();
+        let fingerprint = server_public_key
+            .fingerprint(HashAlg::Sha256)
+            .to_string();
+        let public_key_openssh = server_public_key
+            .to_openssh()
+            .unwrap_or_else(|_| "<failed to encode public key>".to_string());
+
+        emit_trace(
+            &self.app,
+            TraceEvent::new("hostkey", "check", "Checking server host key")
+                .with_correlation_id(self.correlation_id.clone())
+                .with_detail(format!("{}:{} {}", self.host, self.port, fingerprint)),
+        );
+
+        let existing = known_hosts::get(&self.app, &self.host, self.port)
+            .await
+            .map_err(ClientError::HostKeyStore)?;
+
+        match existing {
+            None => Err(ClientError::HostKeyUntrusted {
+                host: self.host.clone(),
+                port: self.port,
+                key_type,
+                fingerprint_sha256: fingerprint,
+                public_key_openssh,
+            }),
+            Some(entry) if entry.fingerprint_sha256 == fingerprint => {
+                emit_trace(
+                    &self.app,
+                    TraceEvent::new("hostkey", "trusted", "Host key trusted")
+                        .with_correlation_id(self.correlation_id.clone()),
+                );
+                Ok(true)
+            }
+            Some(entry) => Err(ClientError::HostKeyMismatch {
+                host: self.host.clone(),
+                port: self.port,
+                key_type,
+                expected_fingerprint_sha256: entry.fingerprint_sha256,
+                actual_fingerprint_sha256: fingerprint,
+                expected_public_key_openssh: entry.public_key_openssh,
+                actual_public_key_openssh: public_key_openssh,
+            }),
+        }
     }
 }
 
@@ -244,23 +338,21 @@ impl SshConnection {
         port: u16,
         username: &str,
         auth: AuthMethod,
-        app: Option<&AppHandle>,
+        app: &AppHandle,
     ) -> Result<Self, SshError> {
         let host = host.trim();
         let username = username.trim();
 
         // Helper to emit trace events
         let trace = |category: &str, step: &str, msg: &str, detail: Option<&str>, is_error: bool| {
-            if let Some(app) = app {
-                let mut event = TraceEvent::new(category, step, msg);
-                if let Some(d) = detail {
-                    event = event.with_detail(d);
-                }
-                if is_error {
-                    event = event.error();
-                }
-                emit_trace(app, event);
+            let mut event = TraceEvent::new(category, step, msg);
+            if let Some(d) = detail {
+                event = event.with_detail(d);
             }
+            if is_error {
+                event = event.error();
+            }
+            emit_trace(app, event);
         };
 
         trace("ssh", "start", &format!("Connecting to {}:{} as {}", host, port, username), None, false);
@@ -324,26 +416,24 @@ impl SshConnection {
             // Retry loop for JoinError - common on rapid reconnection after test disconnect.
             // We retry once with a brief delay, re-establishing the TCP connection.
             for attempt in 0..2 {
-                let attempt_id = Uuid::new_v4().to_string();
-                let transcript = Arc::new(HandshakeTranscript::default());
+                        let attempt_id = Uuid::new_v4().to_string();
+                        let transcript = Arc::new(HandshakeTranscript::default());
 
-                let trace_attempt = |category: &str,
-                                     step: &str,
-                                     msg: &str,
-                                     detail: Option<&str>,
-                                     is_error: bool| {
-                    if let Some(app) = app {
-                        let mut event =
-                            TraceEvent::new(category, step, msg).with_correlation_id(&attempt_id);
-                        if let Some(d) = detail {
-                            event = event.with_detail(d);
-                        }
-                        if is_error {
-                            event = event.error();
-                        }
-                        emit_trace(app, event);
-                    }
-                };
+                        let trace_attempt = |category: &str,
+                                             step: &str,
+                                             msg: &str,
+                                             detail: Option<&str>,
+                                             is_error: bool| {
+                            let mut event =
+                                TraceEvent::new(category, step, msg).with_correlation_id(&attempt_id);
+                            if let Some(d) = detail {
+                                event = event.with_detail(d);
+                            }
+                            if is_error {
+                                event = event.error();
+                            }
+                            emit_trace(app, event);
+                        };
 
                 if attempt > 0 {
                     trace_attempt(
@@ -447,7 +537,14 @@ impl SshConnection {
 
                 let socket = InstrumentedTcpStream::new(socket, transcript.clone());
 
-                match client::connect_stream(config.clone(), socket, ClientHandler).await {
+                let handler = ClientHandler {
+                    app: app.clone(),
+                    host: host.to_string(),
+                    port,
+                    correlation_id: attempt_id.clone(),
+                };
+
+                match client::connect_stream(config.clone(), socket, handler).await {
                     Ok(h) => {
                         let diag = transcript.snapshot(&attempt_id);
                         trace_attempt(
@@ -483,7 +580,71 @@ impl SshConnection {
                         let diag = transcript.snapshot(&attempt_id);
 
                         match e {
-                            russh::Error::Join(_) => {
+                            ClientError::HostKeyStore(detail) => {
+                                trace_attempt(
+                                    "hostkey",
+                                    "store_error",
+                                    "Host key store error",
+                                    Some(&detail),
+                                    true,
+                                );
+                                last_error = Some(SshError::ConnectionFailed(detail));
+                                break;
+                            }
+                            ClientError::HostKeyUntrusted {
+                                host,
+                                port,
+                                key_type,
+                                fingerprint_sha256,
+                                public_key_openssh,
+                            } => {
+                                trace_attempt(
+                                    "hostkey",
+                                    "untrusted",
+                                    "Host key untrusted",
+                                    Some(&fingerprint_sha256),
+                                    true,
+                                );
+                                last_error = Some(SshError::HostKeyUntrusted {
+                                    host,
+                                    port,
+                                    key_type,
+                                    fingerprint_sha256,
+                                    public_key_openssh,
+                                });
+                                break;
+                            }
+                            ClientError::HostKeyMismatch {
+                                host,
+                                port,
+                                key_type,
+                                expected_fingerprint_sha256,
+                                actual_fingerprint_sha256,
+                                expected_public_key_openssh,
+                                actual_public_key_openssh,
+                            } => {
+                                trace_attempt(
+                                    "hostkey",
+                                    "mismatch",
+                                    "Host key mismatch",
+                                    Some(&format!(
+                                        "expected={} actual={}",
+                                        expected_fingerprint_sha256, actual_fingerprint_sha256
+                                    )),
+                                    true,
+                                );
+                                last_error = Some(SshError::HostKeyMismatch {
+                                    host,
+                                    port,
+                                    key_type,
+                                    expected_fingerprint_sha256,
+                                    actual_fingerprint_sha256,
+                                    expected_public_key_openssh,
+                                    actual_public_key_openssh,
+                                });
+                                break;
+                            }
+                            ClientError::Russh(russh::Error::Join(_)) => {
                                 let detail = format!(
                                     "attempt {}/2; err={}; server_id={}",
                                     attempt + 1,
@@ -524,7 +685,8 @@ impl SshConnection {
                                 });
                                 continue;
                             }
-                            _ => {
+                            ClientError::Russh(other) => {
+                                let msg = other.to_string();
                                 trace_attempt(
                                     "ssh",
                                     "handshake_failed",
