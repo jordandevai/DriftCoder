@@ -61,12 +61,12 @@ function createFileStore() {
 			const session = requireActiveSession();
 			const connId = session.connectionId;
 
-			const [content, stat] = await Promise.all([
-				invoke<string>('sftp_read_file', { connId, path }),
-				invoke<{ mtime: number }>('sftp_stat', { connId, path })
-			]);
+			const result = await invoke<{ content: string; mtime: number }>('sftp_read_file_with_stat', {
+				connId,
+				path
+			});
 
-			return { content, mtime: stat.mtime };
+			return { content: result.content, mtime: result.mtime };
 		},
 
 		async refreshDirectory(path: string): Promise<void> {
@@ -140,20 +140,20 @@ function createFileStore() {
 				return;
 			}
 
-			const [content, stat] = await Promise.all([
-				invoke<string>('sftp_read_file', { connId, path }),
-				invoke<{ mtime: number }>('sftp_stat', { connId, path })
-			]);
+			const result = await invoke<{ content: string; mtime: number }>('sftp_read_file_with_stat', {
+				connId,
+				path
+			});
 
 			const fileName = path.split('/').pop() || path;
 			const language = detectLanguage(fileName);
 
 			const openFile: OpenFile = {
 				path,
-				content,
+				content: result.content,
 				language,
 				dirty: false,
-				remoteMtime: stat.mtime
+				remoteMtime: result.mtime
 			};
 
 			updateFileState(sessionId, (s) => {

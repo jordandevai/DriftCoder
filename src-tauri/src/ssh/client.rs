@@ -7,15 +7,31 @@ use russh::Disconnect;
 use russh_sftp::client::error::Error as SftpClientError;
 use russh_sftp::client::SftpSession;
 use ssh_key::public::PublicKey;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::AppHandle;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{lookup_host, TcpStream};
 use tokio::sync::Mutex;
 
 #[derive(Debug, Error)]
 pub enum SshError {
+    #[error("DNS lookup failed for {host}:{port}: {detail}")]
+    DnsLookupFailed {
+        host: String,
+        port: u16,
+        detail: String,
+    },
+    #[error("TCP connect to {addr} failed: {detail}")]
+    TcpConnectFailed { addr: SocketAddr, detail: String },
+    #[error("TCP connect to {addr} timed out")]
+    TcpConnectTimeout { addr: SocketAddr },
+    #[error("SSH handshake to {addr} failed: {detail}")]
+    HandshakeFailed { addr: SocketAddr, detail: String },
+    #[error("SSH handshake to {addr} aborted (JoinError)")]
+    HandshakeJoinAborted { addr: SocketAddr },
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
     #[error("Authentication failed: {0}")]
@@ -58,6 +74,10 @@ pub struct SshConnection {
 }
 
 impl SshConnection {
+    pub fn reset_sftp(&mut self) {
+        self.sftp = None;
+    }
+
     /// Establish a new SSH connection
     pub async fn connect(
         host: &str,
@@ -65,28 +85,86 @@ impl SshConnection {
         username: &str,
         auth: AuthMethod,
     ) -> Result<Self, SshError> {
+        let host = host.trim();
+        let username = username.trim();
+
         let mut config = Config::default();
         // Mobile networks and some SFTP servers can be slow to respond; keepalives help
         // prevent idle connections from being dropped while the UI is loading.
         config.keepalive_interval = Some(Duration::from_secs(20));
         config.keepalive_max = 3;
         let config = Arc::new(config);
-        let handler = ClientHandler;
 
-        let addr = format!("{}:{}", host, port);
-
-        let mut handle = client::connect(config, &addr, handler)
+        let mut resolved: Vec<std::net::SocketAddr> = lookup_host((host, port))
             .await
-            .map_err(|e| {
-                let msg = e.to_string();
-                if msg == "JoinError" {
-                    SshError::ConnectionFailed(
-                        "JoinError (internal SSH task aborted; often caused by a network drop or the server closing the connection early)".to_string(),
-                    )
-                } else {
-                    SshError::ConnectionFailed(msg)
+            .map_err(|e| SshError::DnsLookupFailed {
+                host: host.to_string(),
+                port,
+                detail: e.to_string(),
+            })?
+            .collect();
+
+        if resolved.is_empty() {
+            return Err(SshError::ConnectionFailed(format!(
+                "DNS lookup returned no addresses for {}:{}",
+                host, port
+            )));
+        }
+
+        // Prefer IPv4 to avoid IPv6-only / broken IPv6 routes on some networks.
+        resolved.sort_by_key(|a| match a {
+            std::net::SocketAddr::V4(_) => 0,
+            std::net::SocketAddr::V6(_) => 1,
+        });
+
+        let mut last_error: Option<SshError> = None;
+        let mut handle: Option<Handle<ClientHandler>> = None;
+
+        for addr in resolved.iter().copied() {
+            let socket = match tokio::time::timeout(Duration::from_secs(8), TcpStream::connect(addr))
+                .await
+            {
+                Ok(Ok(s)) => s,
+                Ok(Err(e)) => {
+                    last_error = Some(SshError::TcpConnectFailed {
+                        addr,
+                        detail: e.to_string(),
+                    });
+                    continue;
                 }
-            })?;
+                Err(_) => {
+                    last_error = Some(SshError::TcpConnectTimeout { addr });
+                    continue;
+                }
+            };
+
+            let _ = socket.set_nodelay(true);
+
+            match client::connect_stream(config.clone(), socket, ClientHandler).await {
+                Ok(h) => {
+                    handle = Some(h);
+                    break;
+                }
+                Err(e) => {
+                    let msg = e.to_string();
+                    if msg == "JoinError" {
+                        last_error = Some(SshError::HandshakeJoinAborted { addr });
+                    } else {
+                        last_error = Some(SshError::HandshakeFailed {
+                            addr,
+                            detail: msg,
+                        });
+                    }
+                    continue;
+                }
+            }
+        }
+
+        let mut handle = handle.ok_or_else(|| {
+            last_error.unwrap_or_else(|| {
+                SshError::ConnectionFailed("Failed to establish SSH connection".to_string())
+            })
+        })?;
 
         // Authenticate
         let auth_result = match &auth {
@@ -164,13 +242,47 @@ impl SshConnection {
         Ok(sftp)
     }
 
+    /// Read file contents and return file stat in a single SFTP lock scope (reduces round trips from the UI).
+    pub async fn read_file_with_stat(&mut self, path: &str) -> Result<(String, SftpStat), SshError> {
+        match self.read_file_with_stat_once(path).await {
+            Ok(result) => Ok(result),
+            Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
+                self.reset_sftp();
+                self.read_file_with_stat_once(path).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn read_file_with_stat_once(&mut self, path: &str) -> Result<(String, SftpStat), SshError> {
+        let sftp = self.ensure_sftp().await?;
+        let sftp = sftp.lock().await;
+
+        let mut file = sftp.open(path).await.map_err(map_sftp_error)?;
+
+        let mut content = Vec::new();
+        file.read_to_end(&mut content)
+            .await
+            .map_err(|e| SshError::SftpError(e.to_string()))?;
+
+        let metadata = sftp.metadata(path).await.map_err(map_sftp_error)?;
+
+        let text = String::from_utf8(content).map_err(|e| SshError::SftpError(e.to_string()))?;
+        let stat = SftpStat {
+            size: metadata.size.unwrap_or(0),
+            mtime: metadata.mtime.map(|t| t as i64).unwrap_or(0),
+        };
+
+        Ok((text, stat))
+    }
+
     /// List directory contents
     pub async fn list_dir(&mut self, path: &str) -> Result<Vec<SftpEntry>, SshError> {
         match self.list_dir_once(path).await {
             Ok(entries) => Ok(entries),
             Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
                 // Recreate SFTP session and retry once; useful on flaky mobile networks.
-                self.sftp = None;
+                self.reset_sftp();
                 self.list_dir_once(path).await
             }
             Err(e) => Err(e),
@@ -208,7 +320,7 @@ impl SshConnection {
         match self.read_file_once(path).await {
             Ok(content) => Ok(content),
             Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
-                self.sftp = None;
+                self.reset_sftp();
                 self.read_file_once(path).await
             }
             Err(e) => Err(e),
@@ -237,7 +349,7 @@ impl SshConnection {
         match self.write_file_once(path, content).await {
             Ok(()) => Ok(()),
             Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
-                self.sftp = None;
+                self.reset_sftp();
                 self.write_file_once(path, content).await
             }
             Err(e) => Err(e),
@@ -265,7 +377,7 @@ impl SshConnection {
         match self.stat_once(path).await {
             Ok(stat) => Ok(stat),
             Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
-                self.sftp = None;
+                self.reset_sftp();
                 self.stat_once(path).await
             }
             Err(e) => Err(e),
@@ -292,7 +404,7 @@ impl SshConnection {
         match self.get_home_dir_once().await {
             Ok(path) => Ok(path),
             Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
-                self.sftp = None;
+                self.reset_sftp();
                 self.get_home_dir_once().await
             }
             Err(e) => Err(e),
@@ -318,7 +430,7 @@ impl SshConnection {
         match self.create_file_once(path).await {
             Ok(()) => Ok(()),
             Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
-                self.sftp = None;
+                self.reset_sftp();
                 self.create_file_once(path).await
             }
             Err(e) => Err(e),
@@ -342,7 +454,7 @@ impl SshConnection {
         match self.create_dir_once(path).await {
             Ok(()) => Ok(()),
             Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
-                self.sftp = None;
+                self.reset_sftp();
                 self.create_dir_once(path).await
             }
             Err(e) => Err(e),
@@ -365,7 +477,7 @@ impl SshConnection {
         match self.delete_once(path).await {
             Ok(()) => Ok(()),
             Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
-                self.sftp = None;
+                self.reset_sftp();
                 self.delete_once(path).await
             }
             Err(e) => Err(e),
@@ -391,7 +503,7 @@ impl SshConnection {
         match self.rename_once(old_path, new_path).await {
             Ok(()) => Ok(()),
             Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
-                self.sftp = None;
+                self.reset_sftp();
                 self.rename_once(old_path, new_path).await
             }
             Err(e) => Err(e),
@@ -440,7 +552,7 @@ impl SshConnection {
 
     /// Disconnect the SSH connection
     pub async fn disconnect(&mut self) -> Result<(), SshError> {
-        self.sftp = None;
+        self.reset_sftp();
 
         self.handle
             .disconnect(Disconnect::ByApplication, "User requested disconnect", "en")

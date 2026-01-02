@@ -33,6 +33,7 @@
 	let saveConnection = $state(true);
 	let testing = $state(false);
 	let testResult = $state<'success' | 'failed' | null>(null);
+	let testError = $state<string | null>(null);
 
 	const isEditing = $derived(!!profile);
 
@@ -57,6 +58,7 @@
 	async function handleTest() {
 		testing = true;
 		testResult = null;
+		testError = null;
 
 		try {
 			const { invoke } = await import('$utils/tauri');
@@ -66,8 +68,9 @@
 				password: authMethod === 'password' ? password : undefined
 			});
 			testResult = success ? 'success' : 'failed';
-		} catch {
+		} catch (e) {
 			testResult = 'failed';
+			testError = e instanceof Error ? e.message : String(e);
 		} finally {
 			testing = false;
 		}
@@ -167,7 +170,11 @@
 					? 'bg-success/10 text-success border border-success'
 					: 'bg-error/10 text-error border border-error'}"
 			>
-				{testResult === 'success' ? 'Connection successful!' : 'Connection failed'}
+				{#if testResult === 'success'}
+					Connection successful!
+				{:else}
+					Connection failed{testError ? `: ${testError}` : ''}
+				{/if}
 			</div>
 		{/if}
 

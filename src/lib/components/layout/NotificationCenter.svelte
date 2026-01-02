@@ -30,6 +30,22 @@
 	function close() {
 		notificationsStore.closeCenter();
 	}
+
+	async function copySelected() {
+		if (!selected) return;
+		const payload = {
+			title: selected.title,
+			message: selected.message,
+			detail: selected.detail ?? null,
+			createdAt: selected.createdAt
+		};
+		const text = JSON.stringify(payload, null, 2);
+		try {
+			await navigator.clipboard.writeText(text);
+		} catch (error) {
+			console.error('Failed to copy notification:', error);
+		}
+	}
 </script>
 
 <Modal open={open} title="Notifications" size="xl" onclose={close}>
@@ -97,6 +113,14 @@
 								<div class="text-xs text-gray-400 mt-0.5">{formatTime(selected.createdAt)}</div>
 							</div>
 							<div class="flex items-center gap-2">
+								<Button
+									size="sm"
+									variant="ghost"
+									onclick={copySelected}
+									disabled={!selected.message && !selected.detail}
+								>
+									Copy
+								</Button>
 								<Button size="sm" variant="ghost" onclick={() => notificationsStore.dismiss(selected.id)}>
 									Dismiss Popup
 								</Button>
@@ -136,4 +160,3 @@
 		</div>
 	</div>
 </Modal>
-

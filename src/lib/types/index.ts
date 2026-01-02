@@ -143,3 +143,10 @@ export interface ActiveConnection {
 	profile: ConnectionProfile;
 	sessionCount: number; // Number of sessions using this connection
 }
+
+export interface IpcError {
+	code: string;
+	message: string;
+	raw?: string;
+	context?: unknown;
+}

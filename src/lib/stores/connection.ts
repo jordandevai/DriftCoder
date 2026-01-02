@@ -1,6 +1,6 @@
 import { writable, derived, get } from 'svelte/store';
 import type { ConnectionState, ConnectionProfile, ActiveConnection } from '$types';
-import { invoke } from '$utils/tauri';
+import { invoke, isTauri, listen } from '$utils/tauri';
 import { loadSavedConnections, saveConnections } from '$utils/storage';
 import { notificationsStore } from './notifications';
 
@@ -13,6 +13,7 @@ const initialState: ConnectionState = {
 
 function createConnectionStore() {
 	const { subscribe, set, update } = writable<ConnectionState>(initialState);
+	let unlistenConnectionStatus: (() => void) | null = null;
 
 	return {
 		subscribe,
@@ -214,9 +215,50 @@ function createConnectionStore() {
 				bookmarkedPaths: p.bookmarkedPaths || []
 			}));
 			update((s) => ({ ...s, savedProfiles: migratedProfiles }));
+
+			if (isTauri() && !unlistenConnectionStatus) {
+				unlistenConnectionStatus = await listen<{
+					connectionId: string;
+					status: 'connected' | 'disconnected';
+					detail?: string | null;
+				}>('connection_status_changed', async (payload) => {
+					if (payload.status !== 'disconnected') return;
+
+					const state = get({ subscribe });
+					const active = state.activeConnections.get(payload.connectionId);
+					if (!active) return;
+
+					update((s) => {
+						const newConnections = new Map(s.activeConnections);
+						newConnections.delete(payload.connectionId);
+						return { ...s, activeConnections: newConnections };
+					});
+
+					notificationsStore.notifyOnce(`connection_lost:${payload.connectionId}`, {
+						severity: 'error',
+						title: 'Connection Lost',
+						message: `Disconnected from ${active.profile.username}@${active.profile.host}:${active.profile.port}.`,
+						detail: payload.detail || 'Disconnected'
+					});
+
+					try {
+						const { workspaceStore } = await import('./workspace');
+						await workspaceStore.dropSessionsForConnection(
+							payload.connectionId,
+							payload.detail || 'Connection lost'
+						);
+					} catch (e) {
+						console.error('Failed to reconcile sessions after disconnect:', e);
+					}
+				});
+			}
 		},
 
 		reset(): void {
+			if (unlistenConnectionStatus) {
+				unlistenConnectionStatus();
+				unlistenConnectionStatus = null;
+			}
 			set(initialState);
 		}
 	};

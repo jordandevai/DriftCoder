@@ -1,5 +1,6 @@
 mod commands;
 mod credentials;
+mod ipc_error;
 mod ssh;
 mod state;
 
@@ -25,6 +26,7 @@ pub fn run() {
             // File system commands
             commands::filesystem::sftp_list_dir,
             commands::filesystem::sftp_read_file,
+            commands::filesystem::sftp_read_file_with_stat,
             commands::filesystem::sftp_write_file,
             commands::filesystem::sftp_stat,
             commands::filesystem::sftp_create_file,

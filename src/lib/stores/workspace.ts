@@ -174,6 +174,54 @@ function createWorkspaceStore() {
 		},
 
 		/**
+		 * Drop all sessions that depend on a connection (used when the backend reports a disconnect).
+		 * This is intentionally a local-state operation; it does not attempt to disconnect or clean up
+		 * remote resources because the connection is already gone.
+		 */
+		async dropSessionsForConnection(connectionId: string, reason?: string): Promise<void> {
+			const state = get({ subscribe });
+			const sessionsToDrop = Array.from(state.sessions.values()).filter(
+				(s) => s.connectionId === connectionId
+			);
+			if (sessionsToDrop.length === 0) return;
+
+			// Best-effort: remove from connection store counts without triggering disconnect flows.
+			connectionStore.updateSessionCount(connectionId, -sessionsToDrop.length);
+
+			update((s) => {
+				const nextSessions = new Map(s.sessions);
+				for (const session of sessionsToDrop) {
+					nextSessions.delete(session.id);
+				}
+
+				const nextOrder = s.sessionOrder.filter(
+					(id) => !sessionsToDrop.some((session) => session.id === id)
+				);
+
+				let nextActiveId = s.activeSessionId;
+				if (nextActiveId && !nextSessions.has(nextActiveId)) {
+					nextActiveId = nextOrder[0] || null;
+				}
+
+				return {
+					...s,
+					sessions: nextSessions,
+					sessionOrder: nextOrder,
+					activeSessionId: nextActiveId
+				};
+			});
+
+			if (reason) {
+				notificationsStore.notifyOnce(`sessions_dropped:${connectionId}`, {
+					severity: 'warning',
+					title: 'Workspace Closed',
+					message: 'The workspace was closed because the SSH connection was lost.',
+					detail: reason
+				});
+			}
+		},
+
+		/**
 		 * Switch to a different session
 		 */
 		switchSession(sessionId: string): void {
