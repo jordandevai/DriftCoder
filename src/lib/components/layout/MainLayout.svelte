@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy, onMount } from 'svelte';
 	import { layoutStore } from '$stores/layout';
 	import { hasSessions, activeSession, orderedSessions } from '$stores/workspace';
 	import MenuToolbar from './MenuToolbar.svelte';
@@ -16,6 +17,7 @@
 	import { workspaceStore } from '$stores/workspace';
 	import { connectionStore } from '$stores/connection';
 	import { notificationsStore } from '$stores/notifications';
+	import { fileStore } from '$stores/files';
 	import type { ConnectionProfile } from '$types';
 	import {
 		closeActivePanel,
@@ -32,6 +34,14 @@
 	// Initial connection flow state
 	let pendingConnectionId = $state<string | null>(null);
 	let pendingProfile = $state<ConnectionProfile | null>(null);
+
+	onMount(() => {
+		fileStore.initRemoteSync();
+	});
+
+	onDestroy(() => {
+		fileStore.destroyRemoteSync();
+	});
 
 	function handleAddProject() {
 		addProjectOpen = true;

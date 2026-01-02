@@ -10,6 +10,8 @@
 	import { notificationsStore } from '$stores/notifications';
 	import { conflictStore } from '$stores/conflict';
 	import { loadLanguageExtension } from '$utils/codemirror-languages';
+	import Button from '$components/shared/Button.svelte';
+	import { confirmStore } from '$stores/confirm';
 
 	interface Props {
 		filePath: string;
@@ -157,6 +159,18 @@
 		}
 	}
 
+	async function handleReloadFromServer() {
+		const confirmed = await confirmStore.confirm({
+			title: 'Reload From Server',
+			message: 'Discard local changes and reload the latest server version?',
+			confirmText: 'Reload',
+			cancelText: 'Cancel',
+			destructive: true
+		});
+		if (!confirmed) return;
+		await fileStore.reloadFileFromRemote(filePath);
+	}
+
 	onDestroy(() => {
 		if (editorView) {
 			editorView.destroy();
@@ -205,8 +219,23 @@
 	});
 </script>
 
-<div class="h-full w-full overflow-hidden relative">
-	<div bind:this={editorContainer} class="h-full w-full"></div>
+<div class="h-full w-full overflow-hidden relative flex flex-col">
+	{#if file?.remoteChanged}
+		<div class="flex items-center justify-between gap-2 px-3 py-2 text-xs border-b border-panel-border bg-warning/10">
+			<div class="text-gray-200">
+				Server version changed while you were editing.
+			</div>
+			<div class="flex items-center gap-2">
+				<Button size="sm" variant="ghost" onclick={() => conflictStore.open(filePath)}>
+					Compare
+				</Button>
+				<Button size="sm" variant="ghost" onclick={handleReloadFromServer}>
+					Reload Server
+				</Button>
+			</div>
+		</div>
+	{/if}
+	<div bind:this={editorContainer} class="flex-1 h-full w-full"></div>
 	{#if !file}
 		<div class="absolute inset-0 flex items-center justify-center text-gray-500">
 			<p>Loading file...</p>

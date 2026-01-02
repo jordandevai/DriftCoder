@@ -5,6 +5,8 @@ import { workspaceStore, activeSession } from './workspace';
 import { detectLanguage } from '$utils/languages';
 import { sortEntries } from '$utils/file-tree';
 
+const DEFAULT_REMOTE_CHECK_STALE_MS = 10_000;
+
 // Initial state for when no session is active
 const emptyState: FileState = {
 	projectRoot: '',
@@ -73,20 +75,150 @@ const fileStateStore = derived(activeSession, ($session) => {
 
 // Create the file store with methods
 function createFileStore() {
+	let remoteSyncCleanup: (() => void) | null = null;
+
+	async function fetchRemoteFileInternal(path: string): Promise<{ content: string; mtime: number }> {
+		const session = requireActiveSession();
+		const connId = session.connectionId;
+
+		const result = await invoke<{ content: string; mtime: number }>('sftp_read_file_with_stat', {
+			connId,
+			path
+		});
+
+		return { content: result.content, mtime: result.mtime };
+	}
+
+	async function reloadFileFromRemoteInternal(path: string): Promise<void> {
+		const session = requireActiveSession();
+		const sessionId = session.id;
+
+		const remote = await fetchRemoteFileInternal(path);
+		updateFileState(sessionId, (s) => {
+			const file = s.openFiles.get(path);
+			if (!file) return s;
+
+			const newOpenFiles = new Map(s.openFiles);
+			newOpenFiles.set(path, {
+				...file,
+				content: remote.content,
+				dirty: false,
+				remoteMtime: remote.mtime,
+				remoteLastCheckedAt: Date.now(),
+				remoteChanged: false,
+				remoteMtimeOnServer: undefined
+			});
+			return { ...s, openFiles: newOpenFiles };
+		});
+	}
+
+	async function checkRemoteForOpenFile(
+		path: string,
+		opts?: { onlyIfStaleMs?: number; trigger?: 'focus' | 'activate' | 'manual' }
+	): Promise<void> {
+		const session = get(activeSession);
+		if (!session) return;
+
+		const sessionId = session.id;
+		const connId = session.connectionId;
+
+		const current = session.fileState.openFiles.get(path);
+		if (!current) return;
+
+		const now = Date.now();
+		const onlyIfStaleMs = opts?.onlyIfStaleMs ?? DEFAULT_REMOTE_CHECK_STALE_MS;
+		if (onlyIfStaleMs > 0 && current.remoteLastCheckedAt && now - current.remoteLastCheckedAt < onlyIfStaleMs) {
+			return;
+		}
+
+		let remoteMtime: number;
+		try {
+			const remoteStat = await invoke<{ mtime: number }>('sftp_stat', { connId, path });
+			remoteMtime = remoteStat.mtime;
+		} catch {
+			// If the connection is down or the stat fails transiently, avoid spamming UI.
+			return;
+		}
+
+		// Use latest state to avoid racing against user edits or session switches.
+		const latestSession = get(activeSession);
+		if (!latestSession || latestSession.id !== sessionId) return;
+		const latest = latestSession.fileState.openFiles.get(path);
+		if (!latest) return;
+
+		updateFileState(sessionId, (s) => {
+			const file = s.openFiles.get(path);
+			if (!file) return s;
+
+			const updated: OpenFile = {
+				...file,
+				remoteLastCheckedAt: now,
+				remoteMtimeOnServer: remoteMtime,
+				// Only surface a "remote changed" indicator when the user has local edits.
+				remoteChanged: remoteMtime > file.remoteMtime && file.dirty ? true : false
+			};
+
+			// If remote isn't newer, clear any prior indicator.
+			if (remoteMtime <= file.remoteMtime) {
+				updated.remoteChanged = false;
+				updated.remoteMtimeOnServer = undefined;
+			}
+
+			const newOpenFiles = new Map(s.openFiles);
+			newOpenFiles.set(path, updated);
+			return { ...s, openFiles: newOpenFiles };
+		});
+
+		// If the file is clean and the remote changed, refresh the local view automatically.
+		const afterUpdateSession = get(activeSession);
+		if (!afterUpdateSession || afterUpdateSession.id !== sessionId) return;
+		const afterUpdateFile = afterUpdateSession.fileState.openFiles.get(path);
+		if (!afterUpdateFile) return;
+		if (!afterUpdateFile.dirty && remoteMtime > afterUpdateFile.remoteMtime) {
+			await reloadFileFromRemoteInternal(path);
+		}
+	}
+
 	return {
 		// Subscribe to the derived state
 		subscribe: fileStateStore.subscribe,
 
+		initRemoteSync(): void {
+			if (typeof window === 'undefined') return;
+			if (remoteSyncCleanup) return;
+
+			const onFocus = () => {
+				const session = get(activeSession);
+				const path = session?.fileState.activeFilePath;
+				if (!path) return;
+				void checkRemoteForOpenFile(path, { trigger: 'focus' });
+			};
+
+			const onVisibility = () => {
+				if (document.hidden) return;
+				onFocus();
+			};
+
+			window.addEventListener('focus', onFocus);
+			document.addEventListener('visibilitychange', onVisibility);
+
+			remoteSyncCleanup = () => {
+				window.removeEventListener('focus', onFocus);
+				document.removeEventListener('visibilitychange', onVisibility);
+				remoteSyncCleanup = null;
+			};
+		},
+
+		destroyRemoteSync(): void {
+			remoteSyncCleanup?.();
+		},
+
+		async checkRemoteNow(path: string): Promise<void> {
+			await checkRemoteForOpenFile(path, { onlyIfStaleMs: 0, trigger: 'manual' });
+		},
+
 		async fetchRemoteFile(path: string): Promise<{ content: string; mtime: number }> {
-			const session = requireActiveSession();
-			const connId = session.connectionId;
-
-			const result = await invoke<{ content: string; mtime: number }>('sftp_read_file_with_stat', {
-				connId,
-				path
-			});
-
-			return { content: result.content, mtime: result.mtime };
+			return await fetchRemoteFileInternal(path);
 		},
 
 		async refreshDirectory(path: string): Promise<void> {
@@ -240,23 +372,7 @@ function createFileStore() {
 		},
 
 		async reloadFileFromRemote(path: string): Promise<void> {
-			const session = requireActiveSession();
-			const sessionId = session.id;
-
-			const remote = await this.fetchRemoteFile(path);
-			updateFileState(sessionId, (s) => {
-				const file = s.openFiles.get(path);
-				if (!file) return s;
-
-				const newOpenFiles = new Map(s.openFiles);
-				newOpenFiles.set(path, {
-					...file,
-					content: remote.content,
-					dirty: false,
-					remoteMtime: remote.mtime
-				});
-				return { ...s, openFiles: newOpenFiles };
-			});
+			await reloadFileFromRemoteInternal(path);
 		},
 
 		async saveFile(path: string): Promise<void> {
@@ -348,6 +464,9 @@ function createFileStore() {
 			if (!session) return;
 
 			updateFileState(session.id, (s) => ({ ...s, activeFilePath: path }));
+			if (path) {
+				void checkRemoteForOpenFile(path, { trigger: 'activate' });
+			}
 		},
 
 		async createFile(path: string): Promise<void> {

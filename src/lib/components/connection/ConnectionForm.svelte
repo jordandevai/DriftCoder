@@ -2,6 +2,9 @@
 	import type { ConnectionProfile, AuthMethod } from '$types';
 	import Button from '$components/shared/Button.svelte';
 	import Input from '$components/shared/Input.svelte';
+	import { confirmStore } from '$stores/confirm';
+	import { invoke, TauriCommandError } from '$utils/tauri';
+	import { parseHostKeyContext } from '$utils/ssh-hostkey';
 
 	interface Props {
 		profile?: ConnectionProfile | null;
@@ -61,12 +64,88 @@
 		testError = null;
 
 		try {
-			const { invoke } = await import('$utils/tauri');
 			const connectionProfile = buildProfile();
-			const success = await invoke<boolean>('ssh_test_connection', {
-				profile: connectionProfile,
-				password: authMethod === 'password' ? password : undefined
-			});
+
+			const testOnce = async (): Promise<boolean> =>
+				await invoke<boolean>('ssh_test_connection', {
+					profile: connectionProfile,
+					password: authMethod === 'password' ? password : undefined
+				});
+
+			let success: boolean;
+			try {
+				success = await testOnce();
+			} catch (error) {
+				if (error instanceof TauriCommandError && error.code === 'ssh_hostkey_untrusted') {
+					const ctx = parseHostKeyContext(error.context);
+					if (ctx && 'fingerprintSha256' in ctx) {
+						const confirmed = await confirmStore.confirm({
+							title: 'Trust Host Key to Test?',
+							message:
+								`To securely test SSH, DriftCode must verify the server’s host key.\n\n` +
+								`The SSH server ${ctx.host}:${ctx.port} is presenting an untrusted host key.\n\n` +
+								`Only trust this key if you are sure you’re connecting to the right machine.`,
+							detail: `${ctx.keyType} ${ctx.fingerprintSha256}\n\n${ctx.publicKeyOpenssh}`,
+							confirmText: 'Trust & Retest',
+							cancelText: 'Cancel'
+						});
+						if (confirmed) {
+							await invoke('ssh_trust_host_key', {
+								request: {
+									host: ctx.host,
+									port: ctx.port,
+									keyType: ctx.keyType,
+									fingerprintSha256: ctx.fingerprintSha256,
+									publicKeyOpenssh: ctx.publicKeyOpenssh
+								}
+							});
+							success = await testOnce();
+						} else {
+							throw error;
+						}
+					} else {
+						throw error;
+					}
+				} else if (error instanceof TauriCommandError && error.code === 'ssh_hostkey_mismatch') {
+					const ctx = parseHostKeyContext(error.context);
+					if (ctx && 'expectedFingerprintSha256' in ctx) {
+						const confirmed = await confirmStore.confirm({
+							title: 'Host Key Changed',
+							message:
+								`WARNING: The host key for ${ctx.host}:${ctx.port} has changed.\n\n` +
+								`This can indicate a man-in-the-middle attack, or that the server was reinstalled.\n\n` +
+								`Replace the saved key only if you’re sure this is expected.`,
+							detail:
+								`Expected: ${ctx.expectedFingerprintSha256}\n` +
+								`Actual:   ${ctx.actualFingerprintSha256}\n\n` +
+								`New key:\n${ctx.actualPublicKeyOpenssh}`,
+							confirmText: 'Replace Key & Retest',
+							cancelText: 'Cancel',
+							destructive: true
+						});
+						if (confirmed) {
+							await invoke('ssh_forget_host_key', { host: ctx.host, port: ctx.port });
+							await invoke('ssh_trust_host_key', {
+								request: {
+									host: ctx.host,
+									port: ctx.port,
+									keyType: ctx.keyType,
+									fingerprintSha256: ctx.actualFingerprintSha256,
+									publicKeyOpenssh: ctx.actualPublicKeyOpenssh
+								}
+							});
+							success = await testOnce();
+						} else {
+							throw error;
+						}
+					} else {
+						throw error;
+					}
+				} else {
+					throw error;
+				}
+			}
+
 			testResult = success ? 'success' : 'failed';
 		} catch (e) {
 			testResult = 'failed';

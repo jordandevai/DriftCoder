@@ -48,6 +48,10 @@ export interface OpenFile {
 	language: string;
 	dirty: boolean;
 	remoteMtime: number;
+	// Remote sync metadata (optional to keep compatibility)
+	remoteLastCheckedAt?: number;
+	remoteMtimeOnServer?: number;
+	remoteChanged?: boolean;
 }
 
 export interface FileState {
