@@ -2,11 +2,13 @@
 	import { onMount } from 'svelte';
 	import '../app.css';
 	import { connectionStore } from '$stores/connection';
+	import { debugStore } from '$stores/debug';
 
 	let { children } = $props();
 
 	onMount(() => {
 		connectionStore.init();
+		debugStore.init();
 	});
 </script>
 

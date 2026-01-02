@@ -3,6 +3,7 @@ mod credentials;
 mod ipc_error;
 mod ssh;
 mod state;
+pub mod trace;
 
 use state::AppState;
 use std::sync::Arc;
@@ -38,6 +39,10 @@ pub fn run() {
             commands::terminal::terminal_write,
             commands::terminal::terminal_resize,
             commands::terminal::terminal_close,
+            // Debug commands
+            commands::debug::debug_enable_trace,
+            commands::debug::debug_disable_trace,
+            commands::debug::debug_is_trace_enabled,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

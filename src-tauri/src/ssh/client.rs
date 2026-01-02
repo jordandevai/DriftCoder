@@ -1,6 +1,7 @@
 use crate::ssh::auth::AuthMethod;
 use crate::ssh::pty::PtySession;
 use crate::ssh::sftp::{SftpEntry, SftpStat};
+use crate::trace::{emit_trace, TraceEvent};
 use async_trait::async_trait;
 use russh::client::{self, Config, Handle, Handler};
 use russh::Disconnect;
@@ -79,14 +80,33 @@ impl SshConnection {
     }
 
     /// Establish a new SSH connection
+    ///
+    /// If `app` is provided, trace events will be emitted for debugging.
     pub async fn connect(
         host: &str,
         port: u16,
         username: &str,
         auth: AuthMethod,
+        app: Option<&AppHandle>,
     ) -> Result<Self, SshError> {
         let host = host.trim();
         let username = username.trim();
+
+        // Helper to emit trace events
+        let trace = |category: &str, step: &str, msg: &str, detail: Option<&str>, is_error: bool| {
+            if let Some(app) = app {
+                let mut event = TraceEvent::new(category, step, msg);
+                if let Some(d) = detail {
+                    event = event.with_detail(d);
+                }
+                if is_error {
+                    event = event.error();
+                }
+                emit_trace(app, event);
+            }
+        };
+
+        trace("ssh", "start", &format!("Connecting to {}:{} as {}", host, port, username), None, false);
 
         let mut config = Config::default();
         // Mobile networks and some SFTP servers can be slow to respond; keepalives help
@@ -95,21 +115,30 @@ impl SshConnection {
         config.keepalive_max = 3;
         let config = Arc::new(config);
 
+        trace("dns", "lookup", &format!("Resolving {}:{}", host, port), None, false);
+
         let mut resolved: Vec<std::net::SocketAddr> = lookup_host((host, port))
             .await
-            .map_err(|e| SshError::DnsLookupFailed {
-                host: host.to_string(),
-                port,
-                detail: e.to_string(),
+            .map_err(|e| {
+                trace("dns", "failed", "DNS lookup failed", Some(&e.to_string()), true);
+                SshError::DnsLookupFailed {
+                    host: host.to_string(),
+                    port,
+                    detail: e.to_string(),
+                }
             })?
             .collect();
 
         if resolved.is_empty() {
+            trace("dns", "failed", "DNS returned no addresses", None, true);
             return Err(SshError::ConnectionFailed(format!(
                 "DNS lookup returned no addresses for {}:{}",
                 host, port
             )));
         }
+
+        let addr_list: Vec<String> = resolved.iter().map(|a| a.to_string()).collect();
+        trace("dns", "resolved", &format!("Found {} addresses", resolved.len()), Some(&addr_list.join(", ")), false);
 
         // Prefer IPv4 to avoid IPv6-only / broken IPv6 routes on some networks.
         resolved.sort_by_key(|a| match a {
@@ -120,20 +149,29 @@ impl SshConnection {
         let mut last_error: Option<SshError> = None;
         let mut handle: Option<Handle<ClientHandler>> = None;
 
-        for addr in resolved.iter().copied() {
+        for (addr_idx, addr) in resolved.iter().copied().enumerate() {
+            trace("tcp", "attempt", &format!("Trying address {}/{}", addr_idx + 1, resolved.len()), Some(&addr.to_string()), false);
+
             // Retry loop for JoinError - common on rapid reconnection after test disconnect.
             // We retry once with a brief delay, re-establishing the TCP connection.
             for attempt in 0..2 {
                 if attempt > 0 {
+                    trace("ssh", "retry", "Retrying after JoinError", Some("200ms delay"), false);
                     // Brief delay before retry to allow socket release
                     tokio::time::sleep(Duration::from_millis(200)).await;
                 }
 
+                trace("tcp", "connect", &format!("TCP connecting to {}", addr), Some("8s timeout"), false);
+
                 let socket = match tokio::time::timeout(Duration::from_secs(8), TcpStream::connect(addr))
                     .await
                 {
-                    Ok(Ok(s)) => s,
+                    Ok(Ok(s)) => {
+                        trace("tcp", "connected", &format!("TCP connected to {}", addr), None, false);
+                        s
+                    }
                     Ok(Err(e)) => {
+                        trace("tcp", "failed", &format!("TCP connect failed: {}", addr), Some(&e.to_string()), true);
                         last_error = Some(SshError::TcpConnectFailed {
                             addr,
                             detail: e.to_string(),
@@ -141,6 +179,7 @@ impl SshConnection {
                         break; // TCP failed, try next address
                     }
                     Err(_) => {
+                        trace("tcp", "timeout", &format!("TCP connect timed out: {}", addr), None, true);
                         last_error = Some(SshError::TcpConnectTimeout { addr });
                         break; // TCP timeout, try next address
                     }
@@ -148,18 +187,23 @@ impl SshConnection {
 
                 let _ = socket.set_nodelay(true);
 
+                trace("ssh", "handshake", "Starting SSH handshake", Some(&addr.to_string()), false);
+
                 match client::connect_stream(config.clone(), socket, ClientHandler).await {
                     Ok(h) => {
+                        trace("ssh", "handshake_ok", "SSH handshake successful", None, false);
                         handle = Some(h);
                         break;
                     }
                     Err(e) => {
                         let msg = e.to_string();
                         if msg == "JoinError" {
+                            trace("ssh", "join_error", "SSH handshake JoinError (will retry)", Some(&format!("attempt {}/2", attempt + 1)), true);
                             last_error = Some(SshError::HandshakeJoinAborted { addr });
                             // JoinError: retry once with delay (continue inner loop)
                             continue;
                         } else {
+                            trace("ssh", "handshake_failed", "SSH handshake failed", Some(&msg), true);
                             last_error = Some(SshError::HandshakeFailed {
                                 addr,
                                 detail: msg,
@@ -176,38 +220,64 @@ impl SshConnection {
         }
 
         let mut handle = handle.ok_or_else(|| {
+            trace("ssh", "all_failed", "All connection attempts failed", None, true);
             last_error.unwrap_or_else(|| {
                 SshError::ConnectionFailed("Failed to establish SSH connection".to_string())
             })
         })?;
 
         // Authenticate
+        let auth_method_str = match &auth {
+            AuthMethod::Password(_) => "password",
+            AuthMethod::Key { .. } => "publickey",
+        };
+        trace("auth", "start", &format!("Authenticating as {} via {}", username, auth_method_str), None, false);
+
         let auth_result = match &auth {
-            AuthMethod::Password(password) => handle
-                .authenticate_password(username, password)
-                .await
-                .map_err(|e| SshError::AuthenticationFailed(e.to_string()))?,
+            AuthMethod::Password(password) => {
+                trace("auth", "password", "Sending password authentication", None, false);
+                handle
+                    .authenticate_password(username, password)
+                    .await
+                    .map_err(|e| {
+                        trace("auth", "failed", "Password auth error", Some(&e.to_string()), true);
+                        SshError::AuthenticationFailed(e.to_string())
+                    })?
+            }
             AuthMethod::Key { .. } => {
+                trace("auth", "key_load", "Loading SSH key pair", None, false);
                 let key = auth
                     .load_key_pair()
                     .await
-                    .map_err(|e| SshError::AuthenticationFailed(e.to_string()))?
+                    .map_err(|e| {
+                        trace("auth", "key_load_failed", "Failed to load key", Some(&e.to_string()), true);
+                        SshError::AuthenticationFailed(e.to_string())
+                    })?
                     .ok_or_else(|| {
+                        trace("auth", "no_key", "No key pair loaded", None, true);
                         SshError::AuthenticationFailed("No key pair loaded".to_string())
                     })?;
 
+                trace("auth", "publickey", "Sending public key authentication", None, false);
                 handle
                     .authenticate_publickey(username, key)
                     .await
-                    .map_err(|e| SshError::AuthenticationFailed(e.to_string()))?
+                    .map_err(|e| {
+                        trace("auth", "failed", "Public key auth error", Some(&e.to_string()), true);
+                        SshError::AuthenticationFailed(e.to_string())
+                    })?
             }
         };
 
         if !auth_result {
+            trace("auth", "rejected", "Authentication rejected by server", None, true);
             return Err(SshError::AuthenticationFailed(
                 "Authentication rejected".to_string(),
             ));
         }
+
+        trace("auth", "success", "Authentication successful", None, false);
+        trace("ssh", "connected", &format!("SSH connection established to {}:{}", host, port), None, false);
 
         log::info!("SSH connection established to {}:{}", host, port);
 

@@ -4,13 +4,14 @@ use crate::ssh::auth::AuthMethod;
 use crate::ssh::actor::{spawn_connection_actor, ConnectionRequest};
 use crate::ssh::client::{SshConnection, SshError};
 use crate::state::AppState;
+use crate::trace::{emit_trace, TraceEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
 use tokio::sync::oneshot;
-use tokio::time::{timeout, Duration};
+use tokio::time::{timeout, Duration, sleep};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,13 +107,16 @@ pub async fn ssh_connect(
         profile.port,
         &profile.username,
         auth,
+        Some(&app),
     )
     .await
     .map_err(|e| map_connect_error(&profile, e))?;
 
     // DriftCode requires SFTP for file browsing/editing; fail fast with a clear message
     // if the server does not support the SFTP subsystem.
+    emit_trace(&app, TraceEvent::new("sftp", "verify", "Verifying SFTP availability"));
     if let Err(e) = connection.get_home_dir().await {
+        emit_trace(&app, TraceEvent::new("sftp", "failed", "SFTP unavailable on server").with_detail(e.to_string()).error());
         let _ = connection.disconnect().await;
         return Err(
             IpcError::new(
@@ -127,13 +131,16 @@ pub async fn ssh_connect(
             })),
         );
     }
+    emit_trace(&app, TraceEvent::new("sftp", "ok", "SFTP subsystem available"));
 
     let connection_id = Uuid::new_v4().to_string();
+    emit_trace(&app, TraceEvent::new("actor", "spawn", "Spawning connection actor").with_detail(&connection_id));
 
     let mut app_state = state.lock().await;
-    let handle = spawn_connection_actor(app, connection_id.clone(), connection);
+    let handle = spawn_connection_actor(app.clone(), connection_id.clone(), connection);
     app_state.add_connection(connection_id.clone(), handle);
 
+    emit_trace(&app, TraceEvent::new("connect", "complete", &format!("Connection ready: {}", connection_id)));
     log::info!("SSH connection established: {}", connection_id);
 
     Ok(connection_id)
@@ -200,6 +207,7 @@ pub async fn ssh_get_home_dir(
 /// Test a connection without persisting it
 #[tauri::command]
 pub async fn ssh_test_connection(
+    app: AppHandle,
     profile: ConnectionProfile,
     password: Option<String>,
 ) -> Result<bool, IpcError> {
@@ -222,9 +230,13 @@ pub async fn ssh_test_connection(
         _ => return Err(IpcError::new("invalid_auth_method", "Invalid authentication method")),
     };
 
-    match SshConnection::connect(&profile.host, profile.port, &profile.username, auth).await {
+    emit_trace(&app, TraceEvent::new("test", "start", &format!("Testing connection to {}:{}", profile.host, profile.port)));
+
+    match SshConnection::connect(&profile.host, profile.port, &profile.username, auth, Some(&app)).await {
         Ok(mut conn) => {
+            emit_trace(&app, TraceEvent::new("sftp", "verify", "Verifying SFTP availability (test)"));
             if let Err(e) = conn.get_home_dir().await {
+                emit_trace(&app, TraceEvent::new("sftp", "failed", "SFTP unavailable").with_detail(e.to_string()).error());
                 let _ = conn.disconnect().await;
                 return Err(
                     IpcError::new(
@@ -239,13 +251,20 @@ pub async fn ssh_test_connection(
                     })),
                 );
             }
+            emit_trace(&app, TraceEvent::new("sftp", "ok", "SFTP subsystem available"));
 
+            emit_trace(&app, TraceEvent::new("test", "disconnect", "Test complete, disconnecting"));
             let _ = conn.disconnect().await;
             // Grace period for TCP socket release - prevents "handshake aborted" when
             // connect is called immediately after test on LAN/WiFi networks.
-            tokio::time::sleep(Duration::from_millis(150)).await;
+            emit_trace(&app, TraceEvent::new("test", "grace_period", "Waiting 150ms for socket release"));
+            sleep(Duration::from_millis(150)).await;
+            emit_trace(&app, TraceEvent::new("test", "success", "Connection test passed"));
             Ok(true)
         }
-        Err(e) => Err(map_connect_error(&profile, e)),
+        Err(e) => {
+            emit_trace(&app, TraceEvent::new("test", "failed", "Connection test failed").with_detail(e.to_string()).error());
+            Err(map_connect_error(&profile, e))
+        }
     }
 }
