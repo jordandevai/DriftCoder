@@ -65,6 +65,7 @@ pub enum ConnectionRequest {
 }
 
 #[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ConnectionStatusEvent {
     connection_id: String,
     status: String,
