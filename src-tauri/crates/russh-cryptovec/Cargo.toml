@@ -1,0 +1,24 @@
+[package]
+name = "russh-cryptovec"
+version = "0.48.0"
+edition = "2018"
+rust-version = "1.60"
+license = "Apache-2.0"
+description = "A vector which zeroes its memory on clears and reallocations (patched to avoid panicking when mlock/munlock are unavailable)."
+repository = "https://github.com/warp-tech/russh"
+resolver = "2"
+
+[lib]
+name = "russh_cryptovec"
+path = "src/lib.rs"
+
+[dependencies]
+libc = "0.2"
+ssh-encoding = { version = "0.2", features = ["bytes"], optional = true }
+
+[features]
+ssh-encoding = ["dep:ssh-encoding"]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3", features = ["basetsd", "minwindef", "memoryapi"] }
+

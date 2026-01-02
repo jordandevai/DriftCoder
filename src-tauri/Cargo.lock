@@ -3559,8 +3559,6 @@ dependencies = [
 [[package]]
 name = "russh-cryptovec"
 version = "0.48.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d8e7e854e1a87e4be00fa287c98cad23faa064d0464434beaa9f014ec3baa98"
 dependencies = [
  "libc",
  "ssh-encoding",
