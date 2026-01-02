@@ -255,14 +255,30 @@
 </Modal>
 
 <Modal bind:open={aboutOpen} title="About DriftCoder" size="md">
-	<div class="space-y-3 text-sm">
+	<div class="space-y-4 text-sm">
 		<div class="text-gray-200">
-			DriftCoder is a lightweight SSH-based code editor built with Tauri and Svelte.
+			A lightweight SSH-based code editor. Your code, wherever you drift. No server install required.
 		</div>
+
 		<div class="text-gray-400">
-			Key features: remote editing over SSH (no server install), CodeMirror editor, xterm terminal, multi-project tabs.
+			<div class="font-medium text-gray-300 mb-1">Features</div>
+			<ul class="list-disc list-inside space-y-0.5">
+				<li>Turn your portable device into a powerful code editor</li>
+				<li>Syntax highlighting with multiple language support</li>
+				<li>Integrated terminals</li>
+				<li>Lightweight, simple install - just enable SSH at home</li>
+			</ul>
 		</div>
-		<div class="flex justify-end">
+
+		<div class="pt-2 border-t border-panel-border text-gray-400">
+			<div class="text-gray-200">Made with love by Jordan Gonzales</div>
+			<div class="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+				<a href="https://jtechminds.com" target="_blank" rel="noopener" class="text-accent hover:underline">JTech Minds LLC</a>
+				<a href="https://driftcoder.com" target="_blank" rel="noopener" class="text-accent hover:underline">driftcoder.com</a>
+			</div>
+		</div>
+
+		<div class="flex justify-end pt-2">
 			<Button onclick={() => (aboutOpen = false)}>Close</Button>
 		</div>
 	</div>

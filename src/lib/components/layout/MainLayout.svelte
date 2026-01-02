@@ -10,6 +10,7 @@
 	import NotificationCenter from './NotificationCenter.svelte';
 	import DiagnosticsModal from './DiagnosticsModal.svelte';
 	import ConfirmHost from './ConfirmHost.svelte';
+	import PromptModal from './PromptModal.svelte';
 	import ConflictResolutionModal from '$components/modals/ConflictResolutionModal.svelte';
 	import ConnectionScreen from '$components/connection/ConnectionScreen.svelte';
 	import AddProjectModal from '$components/workspace/AddProjectModal.svelte';
@@ -231,5 +232,6 @@
 	<NotificationCenter />
 	<DiagnosticsModal />
 	<ConfirmHost />
+	<PromptModal />
 	<ConflictResolutionModal />
 </div>

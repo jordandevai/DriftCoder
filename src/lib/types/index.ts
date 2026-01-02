@@ -55,6 +55,7 @@ export interface OpenFile {
 	remoteSizeOnServer?: number;
 	remoteChanged?: boolean;
 	remoteUpdateAvailable?: boolean;
+	remoteMissing?: boolean;
 }
 
 export interface FileState {

@@ -187,20 +187,26 @@
 		<div class="flex gap-1">
 			<button
 				class="p-1 rounded hover:bg-sidebar-hover transition-colors"
-				title="Expand all (loaded)"
-				onclick={() => fileStore.expandAllLoaded()}
+				title="Expand all folders"
+				onclick={() => fileStore.expandAll()}
 			>
+				<!-- Tree with + icon -->
 				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7M4 5l7 7-7 7" />
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v16M4 8h6M10 8v8M10 12h6" />
+					<circle cx="19" cy="12" r="4" stroke-width="2" />
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 10v4M17 12h4" />
 				</svg>
 			</button>
 			<button
 				class="p-1 rounded hover:bg-sidebar-hover transition-colors"
-				title="Collapse all"
+				title="Collapse all folders"
 				onclick={() => fileStore.collapseAll()}
 			>
+				<!-- Tree with - icon -->
 				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v16M4 8h6M10 8v8M10 12h6" />
+					<circle cx="19" cy="12" r="4" stroke-width="2" />
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 12h4" />
 				</svg>
 			</button>
 			<button

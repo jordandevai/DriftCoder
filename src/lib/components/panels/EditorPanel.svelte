@@ -12,6 +12,7 @@
 	import { loadLanguageExtension } from '$utils/codemirror-languages';
 	import Button from '$components/shared/Button.svelte';
 	import { confirmStore } from '$stores/confirm';
+	import { promptStore } from '$stores/prompt';
 
 	interface Props {
 		filePath: string;
@@ -147,6 +148,20 @@
 						}
 					]
 				});
+			} else if (error instanceof Error && error.message === 'MISSING') {
+				const newPath = await promptStore.prompt({
+					title: 'File Missing on Server',
+					message:
+						'This file no longer exists at its original path (it may have been renamed or deleted).\n\n' +
+						'Choose a new path to save your current buffer (prevents recreating a ghost copy at the old path).',
+					placeholder: '/path/to/new-file',
+					initialValue: filePath,
+					confirmText: 'Save As',
+					cancelText: 'Cancel'
+				});
+				if (newPath && newPath !== filePath) {
+					await fileStore.saveFileAs(filePath, newPath);
+				}
 			} else {
 				console.error('Save failed:', error);
 				notificationsStore.notify({
@@ -179,11 +194,18 @@
 
 	function setEditorContent(content: string) {
 		if (!editorView) return;
+		const scrollTop = editorView.scrollDOM.scrollTop;
+		const selection = editorView.state.selection;
 		suppressStoreUpdate = true;
 		editorView.dispatch({
-			changes: { from: 0, to: editorView.state.doc.length, insert: content }
+			changes: { from: 0, to: editorView.state.doc.length, insert: content },
+			selection: {
+				anchor: Math.min(selection.main.anchor, content.length),
+				head: Math.min(selection.main.head, content.length)
+			}
 		});
 		suppressStoreUpdate = false;
+		editorView.scrollDOM.scrollTop = scrollTop;
 	}
 
 	// Keep editor instance stable across reactivity changes
@@ -226,13 +248,6 @@
 			<div class="flex items-center gap-2">
 				<Button size="sm" variant="ghost" onclick={() => conflictStore.open(filePath)}>Compare</Button>
 				<Button size="sm" variant="ghost" onclick={handleReloadFromServer}>Reload Server</Button>
-			</div>
-		</div>
-	{:else if file?.remoteUpdateAvailable}
-		<div class="flex items-center justify-between gap-2 px-3 py-2 text-xs border-b border-panel-border bg-panel-bg">
-			<div class="text-gray-200">Server version updated.</div>
-			<div class="flex items-center gap-2">
-				<Button size="sm" variant="ghost" onclick={() => fileStore.reloadFileFromRemote(filePath)}>Reload</Button>
 			</div>
 		</div>
 	{/if}
