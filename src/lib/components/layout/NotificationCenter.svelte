@@ -46,6 +46,21 @@
 			console.error('Failed to copy notification:', error);
 		}
 	}
+
+	async function exportAll() {
+		const lines = notifications.map((n) => {
+			const time = formatTime(n.createdAt);
+			let line = `${time} ${n.title}: ${n.message}`;
+			if (n.detail) line += `\n  ${n.detail}`;
+			return line;
+		});
+		const text = lines.join('\n');
+		try {
+			await navigator.clipboard.writeText(text);
+		} catch (error) {
+			console.error('Failed to export notifications:', error);
+		}
+	}
 </script>
 
 <Modal open={open} title="Notifications" size="xl" onclose={close}>
@@ -55,6 +70,9 @@
 				{$unreadCount} unread • {notifications.length} total
 			</div>
 			<div class="flex items-center gap-2">
+				<Button size="sm" variant="ghost" onclick={exportAll} disabled={notifications.length === 0}>
+					Export All
+				</Button>
 				<Button
 					size="sm"
 					variant="ghost"
