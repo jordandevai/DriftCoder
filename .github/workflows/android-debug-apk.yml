@@ -4,6 +4,16 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths:
+      - ".github/workflows/android-debug-apk.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "src/**"
+      - "src-tauri/**"
+
+concurrency:
+  group: android-debug-apk-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-debug-apk:
@@ -28,6 +38,9 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -36,15 +49,17 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Gradle cache
+      - name: Android SDK/NDK cache
         uses: actions/cache@v4
         with:
           path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('package-lock.json', 'src-tauri/Cargo.lock', 'src-tauri/tauri.conf.json') }}
+            ${{ env.ANDROID_SDK_ROOT }}/platform-tools
+            ${{ env.ANDROID_SDK_ROOT }}/platforms/${{ env.ANDROID_PLATFORM }}
+            ${{ env.ANDROID_SDK_ROOT }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
+            ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+          key: ${{ runner.os }}-androidsdk-${{ env.ANDROID_PLATFORM }}-${{ env.ANDROID_BUILD_TOOLS }}-${{ env.NDK_VERSION }}
           restore-keys: |
-            ${{ runner.os }}-gradle-
+            ${{ runner.os }}-androidsdk-
 
       - name: Install Android SDK packages
         shell: bash
@@ -71,6 +86,33 @@ jobs:
 
       - name: Typecheck
         run: npm run check
+
+      - name: Maven Central reliability workaround
+        shell: bash
+        run: |
+          # Some runners intermittently receive 403 from repo.maven.apache.org.
+          # repo1.maven.org is the same Maven Central content behind a different hostname.
+          mkdir -p ~/.gradle/init.d
+          cat > ~/.gradle/init.d/rewrite-maven-central.gradle <<'EOF'
+          import org.gradle.api.artifacts.repositories.MavenArtifactRepository
+
+          def rewriteRepo = { repo ->
+            if (repo instanceof MavenArtifactRepository) {
+              def u = repo.url.toString()
+              if (u.contains("https://repo.maven.apache.org/maven2")) {
+                repo.setUrl("https://repo1.maven.org/maven2")
+              }
+            }
+          }
+
+          settingsEvaluated { settings ->
+            settings.dependencyResolutionManagement.repositories.all { rewriteRepo(it) }
+          }
+
+          allprojects {
+            repositories.all { rewriteRepo(it) }
+          }
+          EOF
 
       - name: Initialize Android target (Tauri)
         run: |

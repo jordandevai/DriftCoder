@@ -1,10 +1,11 @@
 use crate::ipc_error::IpcError;
 use crate::ssh::actor::ConnectionRequest;
 use crate::state::AppState;
+use crate::trace::{emit_trace, TraceEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
 use tokio::sync::oneshot;
 
@@ -39,33 +40,57 @@ pub struct FileReadResult {
 /// List directory contents
 #[tauri::command]
 pub async fn sftp_list_dir(
+    app: AppHandle,
     state: State<'_, Arc<Mutex<AppState>>>,
     conn_id: String,
     path: String,
 ) -> Result<Vec<FileEntry>, IpcError> {
+    emit_trace(&app, TraceEvent::new("fs", "list_dir_start", &format!("sftp_list_dir called: {} on {}", path, conn_id)));
+
     let tx = {
         let app_state = state.lock().await;
-        app_state
-            .get_connection_sender(&conn_id)
-            .ok_or_else(|| IpcError::new("connection_not_found", "Connection not found"))?
+        emit_trace(&app, TraceEvent::new("fs", "list_dir_lookup", &format!("Looking up connection: {}", conn_id)));
+        match app_state.get_connection_sender(&conn_id) {
+            Some(tx) => {
+                emit_trace(&app, TraceEvent::new("fs", "list_dir_found", "Connection sender found"));
+                tx
+            }
+            None => {
+                emit_trace(&app, TraceEvent::new("fs", "list_dir_not_found", &format!("Connection {} not found in state", conn_id)).error());
+                return Err(IpcError::new("connection_not_found", "Connection not found"));
+            }
+        }
     };
 
     let (respond_to, rx) = oneshot::channel();
-    tx.send(ConnectionRequest::ListDir {
+    emit_trace(&app, TraceEvent::new("fs", "list_dir_sending", &format!("Sending ListDir request for {}", path)));
+
+    if let Err(e) = tx.send(ConnectionRequest::ListDir {
         path: path.clone(),
         respond_to,
-    })
-    .await
-    .map_err(|_| IpcError::new("connection_closed", "Connection is closed"))?;
+    }).await {
+        emit_trace(&app, TraceEvent::new("fs", "list_dir_send_fail", &format!("Failed to send request: {:?}", e)).error());
+        return Err(IpcError::new("connection_closed", "Connection is closed"));
+    }
 
-    let entries = rx
-        .await
-        .map_err(|_| IpcError::new("connection_closed", "Connection is closed"))?
-        .map_err(|e| {
-            IpcError::new("sftp_list_dir_failed", "SFTP list directory failed")
+    emit_trace(&app, TraceEvent::new("fs", "list_dir_waiting", "Waiting for actor response (45s timeout)"));
+
+    let entries = match rx.await {
+        Ok(Ok(entries)) => {
+            emit_trace(&app, TraceEvent::new("fs", "list_dir_success", &format!("Got {} entries", entries.len())));
+            entries
+        }
+        Ok(Err(e)) => {
+            emit_trace(&app, TraceEvent::new("fs", "list_dir_sftp_err", &format!("SFTP error: {}", e)).error());
+            return Err(IpcError::new("sftp_list_dir_failed", "SFTP list directory failed")
                 .with_raw(e.to_string())
-                .with_context(json!({ "path": path }))
-        })?;
+                .with_context(json!({ "path": path })));
+        }
+        Err(_) => {
+            emit_trace(&app, TraceEvent::new("fs", "list_dir_rx_err", "Response channel closed (actor died?)").error());
+            return Err(IpcError::new("connection_closed", "Connection is closed"));
+        }
+    };
 
     let file_entries: Vec<FileEntry> = entries
         .into_iter()
@@ -84,6 +109,7 @@ pub async fn sftp_list_dir(
         })
         .collect();
 
+    emit_trace(&app, TraceEvent::new("fs", "list_dir_done", &format!("Returning {} files", file_entries.len())));
     Ok(file_entries)
 }
 

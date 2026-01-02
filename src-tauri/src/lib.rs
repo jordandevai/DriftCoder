@@ -7,7 +7,9 @@ pub mod trace;
 
 use state::AppState;
 use std::sync::Arc;
+use tauri::RunEvent;
 use tokio::sync::Mutex;
+use trace::{emit_trace, is_trace_enabled, TraceEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -44,6 +46,37 @@ pub fn run() {
             commands::debug::debug_disable_trace,
             commands::debug::debug_is_trace_enabled,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Capture app lifecycle events for debugging
+            if is_trace_enabled() {
+                match &event {
+                    RunEvent::Ready => {
+                        emit_trace(app, TraceEvent::new("app", "ready", "Application ready"));
+                    }
+                    RunEvent::Resumed => {
+                        // Android/iOS: App returned to foreground
+                        emit_trace(app, TraceEvent::new("app", "resumed", "App resumed from background (mobile)"));
+                        log::info!("[LIFECYCLE] App resumed");
+                    }
+                    #[cfg(target_os = "android")]
+                    RunEvent::Suspended => {
+                        // Android: App going to background - connections may be killed!
+                        emit_trace(app, TraceEvent::new("app", "suspended", "App suspended to background - connections may be killed!").error());
+                        log::warn!("[LIFECYCLE] App suspended - Android may kill connections");
+                    }
+                    RunEvent::ExitRequested { api, .. } => {
+                        emit_trace(app, TraceEvent::new("app", "exit_requested", "Exit requested"));
+                        log::info!("[LIFECYCLE] Exit requested");
+                        let _ = api;
+                    }
+                    RunEvent::Exit => {
+                        emit_trace(app, TraceEvent::new("app", "exit", "Application exiting"));
+                        log::info!("[LIFECYCLE] App exiting");
+                    }
+                    _ => {}
+                }
+            }
+        });
 }

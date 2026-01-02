@@ -1,5 +1,6 @@
 use crate::ssh::client::{SshConnection, SshError};
 use crate::ssh::pty::PtySession;
+use crate::trace::{emit_trace, TraceEvent};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -91,6 +92,8 @@ pub fn spawn_connection_actor(
     let task = tauri::async_runtime::spawn(async move {
         let mut dir_cache = DirectoryCache::new(DIR_CACHE_TTL, DIR_CACHE_MAX_ENTRIES);
 
+        emit_trace(&app, TraceEvent::new("actor", "loop_start", &format!("Actor loop starting for {}", connection_id)));
+
         let _ = app.emit(
             "connection_status_changed",
             ConnectionStatusEvent {
@@ -101,8 +104,46 @@ pub fn spawn_connection_actor(
         );
 
         let mut disconnect_reason: Option<String> = None;
+        let mut request_count = 0u64;
+
+        emit_trace(&app, TraceEvent::new("actor", "waiting", "Actor waiting for requests"));
 
         while let Some(request) = rx.recv().await {
+            request_count += 1;
+            let request_name = match &request {
+                ConnectionRequest::GetHomeDir { .. } => "GetHomeDir",
+                ConnectionRequest::ListDir { path, .. } => {
+                    emit_trace(&app, TraceEvent::new("actor", "list_dir", &format!("ListDir request: {}", path)));
+                    "ListDir"
+                }
+                ConnectionRequest::ReadFileWithStat { path, .. } => {
+                    emit_trace(&app, TraceEvent::new("actor", "read_file_stat", &format!("ReadFileWithStat: {}", path)));
+                    "ReadFileWithStat"
+                }
+                ConnectionRequest::ReadFile { path, .. } => {
+                    emit_trace(&app, TraceEvent::new("actor", "read_file", &format!("ReadFile: {}", path)));
+                    "ReadFile"
+                }
+                ConnectionRequest::WriteFile { path, .. } => {
+                    emit_trace(&app, TraceEvent::new("actor", "write_file", &format!("WriteFile: {}", path)));
+                    "WriteFile"
+                }
+                ConnectionRequest::Stat { path, .. } => {
+                    emit_trace(&app, TraceEvent::new("actor", "stat", &format!("Stat: {}", path)));
+                    "Stat"
+                }
+                ConnectionRequest::CreateFile { .. } => "CreateFile",
+                ConnectionRequest::CreateDir { .. } => "CreateDir",
+                ConnectionRequest::Delete { .. } => "Delete",
+                ConnectionRequest::Rename { .. } => "Rename",
+                ConnectionRequest::CreatePty { .. } => "CreatePty",
+                ConnectionRequest::Disconnect { .. } => {
+                    emit_trace(&app, TraceEvent::new("actor", "disconnect_req", "Disconnect request received"));
+                    "Disconnect"
+                }
+            };
+            emit_trace(&app, TraceEvent::new("actor", "request", &format!("Request #{}: {}", request_count, request_name)));
+
             match request {
                 ConnectionRequest::GetHomeDir { respond_to } => {
                     let result = match tokio::time::timeout(STAT_TIMEOUT, connection.get_home_dir()).await {
@@ -335,9 +376,18 @@ pub fn spawn_connection_actor(
             }
 
             if disconnect_reason.is_some() {
+                emit_trace(&app, TraceEvent::new("actor", "breaking", &format!("Breaking due to disconnect: {:?}", disconnect_reason)).error());
                 break;
             }
         }
+
+        // Loop exited - either channel closed or disconnect requested
+        if disconnect_reason.is_none() {
+            emit_trace(&app, TraceEvent::new("actor", "channel_closed", &format!("Actor channel closed (no senders) after {} requests", request_count)).error());
+            disconnect_reason = Some("Channel closed (all senders dropped)".to_string());
+        }
+
+        emit_trace(&app, TraceEvent::new("actor", "loop_exit", &format!("Actor loop exiting: {:?}", disconnect_reason)));
 
         let _ = app.emit(
             "connection_status_changed",
