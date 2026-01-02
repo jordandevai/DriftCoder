@@ -36,6 +36,17 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            src-tauri/gen/android/.gradle
+          key: ${{ runner.os }}-gradle-${{ hashFiles('package-lock.json', 'src-tauri/Cargo.lock', 'src-tauri/tauri.conf.json') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
       - name: Install Android SDK packages
         shell: bash
         run: |

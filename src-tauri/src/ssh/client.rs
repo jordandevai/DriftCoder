@@ -93,6 +93,11 @@ impl SshConnection {
         // prevent idle connections from being dropped while the UI is loading.
         config.keepalive_interval = Some(Duration::from_secs(20));
         config.keepalive_max = 3;
+        
+        // Increase rekey time for mobile networks - rekeying can cause issues on unstable connections
+        config.rekey_time = Some(Duration::from_secs(3600));
+        config.rekey_limit = Some(1024 * 1024 * 1024); // 1GB
+        
         let config = Arc::new(config);
 
         let mut resolved: Vec<std::net::SocketAddr> = lookup_host((host, port))
@@ -121,7 +126,8 @@ impl SshConnection {
         let mut handle: Option<Handle<ClientHandler>> = None;
 
         for addr in resolved.iter().copied() {
-            let socket = match tokio::time::timeout(Duration::from_secs(8), TcpStream::connect(addr))
+            // Increased timeout for mobile/tablet networks with higher latency
+            let socket = match tokio::time::timeout(Duration::from_secs(15), TcpStream::connect(addr))
                 .await
             {
                 Ok(Ok(s)) => s,
@@ -140,13 +146,17 @@ impl SshConnection {
 
             let _ = socket.set_nodelay(true);
 
+            log::debug!("Starting SSH handshake to {}", addr);
+
             match client::connect_stream(config.clone(), socket, ClientHandler).await {
                 Ok(h) => {
+                    log::debug!("SSH handshake successful to {}", addr);
                     handle = Some(h);
                     break;
                 }
                 Err(e) => {
                     let msg = e.to_string();
+                    log::warn!("SSH handshake failed to {}: {}", addr, msg);
                     if msg == "JoinError" {
                         last_error = Some(SshError::HandshakeJoinAborted { addr });
                     } else {
@@ -195,6 +205,20 @@ impl SshConnection {
         }
 
         log::info!("SSH connection established to {}:{}", host, port);
+
+        // Warmup period: Allow the connection to stabilize, especially important for
+        // mobile/tablet networks where async runtime scheduling may be less predictable.
+        // This prevents handshake aborts when the connection is immediately put under load.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Verify the connection is still alive after warmup
+        // This catches cases where the handshake completed but the connection dropped
+        // during the warmup period (common on unstable mobile networks)
+        if handle.is_closed() {
+            return Err(SshError::ConnectionFailed(
+                "Connection closed during warmup".to_string(),
+            ));
+        }
 
         Ok(Self {
             handle,
