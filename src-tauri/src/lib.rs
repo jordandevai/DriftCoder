@@ -1,5 +1,6 @@
 mod commands;
 mod credentials;
+mod diagnostics;
 mod ipc_error;
 mod ssh;
 mod state;
@@ -13,6 +14,7 @@ use trace::{emit_trace, is_trace_enabled, TraceEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    diagnostics::install_panic_hook();
     env_logger::init();
 
     let app_state = Arc::new(Mutex::new(AppState::new()));
@@ -45,6 +47,7 @@ pub fn run() {
             commands::debug::debug_enable_trace,
             commands::debug::debug_disable_trace,
             commands::debug::debug_is_trace_enabled,
+            commands::debug::debug_export_diagnostics,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

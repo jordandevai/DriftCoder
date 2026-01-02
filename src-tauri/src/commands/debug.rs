@@ -21,3 +21,9 @@ pub fn debug_disable_trace() -> bool {
 pub fn debug_is_trace_enabled() -> bool {
     trace::is_trace_enabled()
 }
+
+/// Export backend diagnostics (recent traces, connect attempts, and panics) as JSON.
+#[tauri::command]
+pub fn debug_export_diagnostics() -> serde_json::Value {
+    crate::diagnostics::export()
+}

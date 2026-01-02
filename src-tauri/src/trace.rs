@@ -3,7 +3,9 @@
 //! Enable tracing by setting the environment variable `DRIFTCODE_DEBUG_TRACE=1`.
 //! Trace events are emitted to the frontend via Tauri events and displayed in notifications.
 
+use crate::diagnostics;
 use serde::Serialize;
+use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter};
@@ -55,11 +57,17 @@ pub struct TraceEvent {
     pub category: String,
     /// Short label for the step (e.g., "lookup", "connect", "handshake")
     pub step: String,
+    /// Optional correlation ID (e.g., connect attempt UUID)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
     /// Human-readable message
     pub message: String,
     /// Additional context (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// Structured context (optional, JSON)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
     /// Whether this is an error trace
     pub is_error: bool,
 }
@@ -73,14 +81,26 @@ impl TraceEvent {
                 .as_millis() as u64,
             category: category.to_string(),
             step: step.to_string(),
+            correlation_id: None,
             message: message.to_string(),
             detail: None,
+            data: None,
             is_error: false,
         }
     }
 
     pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
         self.detail = Some(detail.into());
+        self
+    }
+
+    pub fn with_correlation_id(mut self, correlation_id: impl Into<String>) -> Self {
+        self.correlation_id = Some(correlation_id.into());
+        self
+    }
+
+    pub fn with_data(mut self, data: Value) -> Self {
+        self.data = Some(data);
         self
     }
 
@@ -92,6 +112,9 @@ impl TraceEvent {
 
 /// Emit a trace event to the frontend (no-op if tracing disabled)
 pub fn emit_trace(app: &AppHandle, event: TraceEvent) {
+    // Always retain trace events in the backend diagnostics buffer, even when not emitting.
+    diagnostics::record_trace(&event);
+
     if !is_trace_enabled() {
         return;
     }

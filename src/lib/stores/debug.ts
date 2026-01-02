@@ -12,8 +12,10 @@ export interface TraceEvent {
 	timestamp: number;
 	category: string;
 	step: string;
+	correlationId?: string;
 	message: string;
 	detail?: string;
+	data?: unknown;
 	isError: boolean;
 }
 

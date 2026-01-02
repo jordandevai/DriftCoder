@@ -1,12 +1,14 @@
 <script lang="ts">
 	import Modal from '$components/shared/Modal.svelte';
 	import Button from '$components/shared/Button.svelte';
+	import { invoke, isTauri } from '$utils/tauri';
 	import {
 		notificationsStore,
 		selectedNotification,
 		unreadCount,
 		type Notification
 	} from '$stores/notifications';
+	import { traceHistory } from '$stores/debug';
 
 	const open = $derived($notificationsStore.centerOpen);
 	const notifications = $derived($notificationsStore.notifications);
@@ -61,6 +63,41 @@
 			console.error('Failed to export notifications:', error);
 		}
 	}
+
+	async function copyDebugReport() {
+		const exportedAt = Date.now();
+		const notificationsExport = notifications.map((n) => ({
+			id: n.id,
+			severity: n.severity,
+			title: n.title,
+			message: n.message,
+			detail: n.detail ?? null,
+			createdAt: n.createdAt,
+			readAt: n.readAt ?? null,
+			dismissedAt: n.dismissedAt ?? null
+		}));
+		const report: Record<string, unknown> = {
+			exportedAt,
+			frontend: {
+				notifications: notificationsExport,
+				traceHistory: $traceHistory
+			}
+		};
+
+		if (isTauri()) {
+			try {
+				report.backend = await invoke<unknown>('debug_export_diagnostics');
+			} catch (error) {
+				report.backend = { error: error instanceof Error ? error.message : String(error) };
+			}
+		}
+
+		try {
+			await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
+		} catch (error) {
+			console.error('Failed to copy debug report:', error);
+		}
+	}
 </script>
 
 <Modal open={open} title="Notifications" size="xl" onclose={close}>
@@ -72,6 +109,9 @@
 			<div class="flex items-center gap-2">
 				<Button size="sm" variant="ghost" onclick={exportAll} disabled={notifications.length === 0}>
 					Export All
+				</Button>
+				<Button size="sm" variant="ghost" onclick={copyDebugReport}>
+					Copy Debug Report
 				</Button>
 				<Button
 					size="sm"

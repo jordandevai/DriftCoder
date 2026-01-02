@@ -52,17 +52,26 @@ fn map_connect_error(profile: &ConnectionProfile, error: SshError) -> IpcError {
             "TCP connection timed out. This is often caused by a blocked port or unstable network.",
         )
         .with_context(json!({ "addr": addr.to_string(), "profile": base_context })),
-        SshError::HandshakeJoinAborted { addr } => IpcError::new(
+        SshError::HandshakeJoinAborted { addr, detail, diag } => IpcError::new(
             "ssh_handshake_aborted",
             "SSH handshake aborted (JoinError). This often indicates a network drop or the server closing the connection early.",
         )
-        .with_context(json!({ "addr": addr.to_string(), "profile": base_context })),
-        SshError::HandshakeFailed { addr, detail } => IpcError::new(
+        .with_raw(detail.unwrap_or_else(|| "JoinError".to_string()))
+        .with_context(json!({
+            "addr": addr.to_string(),
+            "profile": base_context,
+            "handshake": diag,
+        })),
+        SshError::HandshakeFailed { addr, detail, diag } => IpcError::new(
             "ssh_handshake_failed",
             "SSH handshake failed. Verify server compatibility and network stability.",
         )
         .with_raw(detail)
-        .with_context(json!({ "addr": addr.to_string(), "profile": base_context })),
+        .with_context(json!({
+            "addr": addr.to_string(),
+            "profile": base_context,
+            "handshake": diag,
+        })),
         SshError::AuthenticationFailed(source) => IpcError::new(
             "ssh_auth_failed",
             "SSH authentication failed. Verify username and credentials.",

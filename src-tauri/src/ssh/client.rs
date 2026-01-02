@@ -1,3 +1,4 @@
+use crate::diagnostics;
 use crate::ssh::auth::AuthMethod;
 use crate::ssh::pty::PtySession;
 use crate::ssh::sftp::{SftpEntry, SftpStat};
@@ -7,15 +8,160 @@ use russh::client::{self, Config, Handle, Handler};
 use russh::Disconnect;
 use russh_sftp::client::error::Error as SftpClientError;
 use russh_sftp::client::SftpSession;
+use serde::Serialize;
 use ssh_key::public::PublicKey;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tauri::AppHandle;
 use thiserror::Error;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::{lookup_host, TcpStream};
 use tokio::sync::Mutex;
+use uuid::Uuid;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandshakeDiag {
+    pub attempt_id: String,
+    pub client_id: Option<String>,
+    pub server_id: Option<String>,
+    pub bytes_written: u64,
+    pub bytes_read: u64,
+}
+
+#[derive(Default)]
+struct HandshakeTranscript {
+    bytes_read: AtomicU64,
+    bytes_written: AtomicU64,
+    client_buf: StdMutex<Vec<u8>>,
+    server_buf: StdMutex<Vec<u8>>,
+    client_id: StdMutex<Option<String>>,
+    server_id: StdMutex<Option<String>>,
+}
+
+impl HandshakeTranscript {
+    fn on_write(&self, data: &[u8]) {
+        self.bytes_written
+            .fetch_add(data.len() as u64, Ordering::Relaxed);
+
+        if self.client_id.lock().map(|v| v.is_some()).unwrap_or(false) {
+            return;
+        }
+
+        let mut buf = self.client_buf.lock().unwrap_or_else(|e| e.into_inner());
+        if buf.len() < 2048 {
+            let remaining = 2048usize.saturating_sub(buf.len());
+            buf.extend_from_slice(&data[..data.len().min(remaining)]);
+        }
+
+        if let Some(pos) = buf.iter().position(|b| *b == b'\n') {
+            let line = &buf[..=pos];
+            let s = String::from_utf8_lossy(line).trim().to_string();
+            let mut id = self.client_id.lock().unwrap_or_else(|e| e.into_inner());
+            if id.is_none() && s.starts_with("SSH-") {
+                *id = Some(s);
+            }
+        }
+    }
+
+    fn on_read(&self, data: &[u8]) {
+        self.bytes_read
+            .fetch_add(data.len() as u64, Ordering::Relaxed);
+
+        if self.server_id.lock().map(|v| v.is_some()).unwrap_or(false) {
+            return;
+        }
+
+        let mut buf = self.server_buf.lock().unwrap_or_else(|e| e.into_inner());
+        if buf.len() < 2048 {
+            let remaining = 2048usize.saturating_sub(buf.len());
+            buf.extend_from_slice(&data[..data.len().min(remaining)]);
+        }
+
+        if let Some(pos) = buf.iter().position(|b| *b == b'\n') {
+            let line = &buf[..=pos];
+            let s = String::from_utf8_lossy(line).trim().to_string();
+            let mut id = self.server_id.lock().unwrap_or_else(|e| e.into_inner());
+            if id.is_none() && s.starts_with("SSH-") {
+                *id = Some(s);
+            }
+        }
+    }
+
+    fn snapshot(&self, attempt_id: &str) -> HandshakeDiag {
+        let client_id = self.client_id.lock().ok().and_then(|v| v.clone());
+        let server_id = self.server_id.lock().ok().and_then(|v| v.clone());
+        HandshakeDiag {
+            attempt_id: attempt_id.to_string(),
+            client_id,
+            server_id,
+            bytes_written: self.bytes_written.load(Ordering::Relaxed),
+            bytes_read: self.bytes_read.load(Ordering::Relaxed),
+        }
+    }
+}
+
+struct InstrumentedTcpStream {
+    inner: TcpStream,
+    transcript: Arc<HandshakeTranscript>,
+}
+
+impl InstrumentedTcpStream {
+    fn new(inner: TcpStream, transcript: Arc<HandshakeTranscript>) -> Self {
+        Self { inner, transcript }
+    }
+}
+
+impl AsyncRead for InstrumentedTcpStream {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        let poll = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
+        if let std::task::Poll::Ready(Ok(())) = &poll {
+            let after = buf.filled().len();
+            if after > before {
+                self.transcript.on_read(&buf.filled()[before..after]);
+            }
+        }
+        poll
+    }
+}
+
+impl AsyncWrite for InstrumentedTcpStream {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        data: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let poll = std::pin::Pin::new(&mut self.inner).poll_write(cx, data);
+        if let std::task::Poll::Ready(Ok(n)) = &poll {
+            if *n > 0 {
+                self.transcript.on_write(&data[..*n]);
+            }
+        }
+        poll
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum SshError {
@@ -30,9 +176,20 @@ pub enum SshError {
     #[error("TCP connect to {addr} timed out")]
     TcpConnectTimeout { addr: SocketAddr },
     #[error("SSH handshake to {addr} failed: {detail}")]
-    HandshakeFailed { addr: SocketAddr, detail: String },
+    HandshakeFailed {
+        addr: SocketAddr,
+        detail: String,
+        #[allow(dead_code)]
+        diag: Option<HandshakeDiag>,
+    },
     #[error("SSH handshake to {addr} aborted (JoinError)")]
-    HandshakeJoinAborted { addr: SocketAddr },
+    HandshakeJoinAborted {
+        addr: SocketAddr,
+        #[allow(dead_code)]
+        detail: Option<String>,
+        #[allow(dead_code)]
+        diag: Option<HandshakeDiag>,
+    },
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
     #[error("Authentication failed: {0}")]
@@ -138,7 +295,13 @@ impl SshConnection {
         }
 
         let addr_list: Vec<String> = resolved.iter().map(|a| a.to_string()).collect();
-        trace("dns", "resolved", &format!("Found {} addresses", resolved.len()), Some(&addr_list.join(", ")), false);
+        trace(
+            "dns",
+            "resolved",
+            &format!("Found {} addresses", resolved.len()),
+            Some(&addr_list.join(", ")),
+            false,
+        );
 
         // Prefer IPv4 to avoid IPv6-only / broken IPv6 routes on some networks.
         resolved.sort_by_key(|a| match a {
@@ -150,28 +313,91 @@ impl SshConnection {
         let mut handle: Option<Handle<ClientHandler>> = None;
 
         for (addr_idx, addr) in resolved.iter().copied().enumerate() {
-            trace("tcp", "attempt", &format!("Trying address {}/{}", addr_idx + 1, resolved.len()), Some(&addr.to_string()), false);
+            trace(
+                "tcp",
+                "attempt",
+                &format!("Trying address {}/{}", addr_idx + 1, resolved.len()),
+                Some(&addr.to_string()),
+                false,
+            );
 
             // Retry loop for JoinError - common on rapid reconnection after test disconnect.
             // We retry once with a brief delay, re-establishing the TCP connection.
             for attempt in 0..2 {
+                let attempt_id = Uuid::new_v4().to_string();
+                let transcript = Arc::new(HandshakeTranscript::default());
+
+                let trace_attempt = |category: &str,
+                                     step: &str,
+                                     msg: &str,
+                                     detail: Option<&str>,
+                                     is_error: bool| {
+                    if let Some(app) = app {
+                        let mut event =
+                            TraceEvent::new(category, step, msg).with_correlation_id(&attempt_id);
+                        if let Some(d) = detail {
+                            event = event.with_detail(d);
+                        }
+                        if is_error {
+                            event = event.error();
+                        }
+                        emit_trace(app, event);
+                    }
+                };
+
                 if attempt > 0 {
-                    trace("ssh", "retry", "Retrying after JoinError", Some("200ms delay"), false);
+                    trace_attempt(
+                        "ssh",
+                        "retry",
+                        "Retrying after JoinError",
+                        Some("200ms delay"),
+                        false,
+                    );
                     // Brief delay before retry to allow socket release
                     tokio::time::sleep(Duration::from_millis(200)).await;
                 }
 
-                trace("tcp", "connect", &format!("TCP connecting to {}", addr), Some("8s timeout"), false);
+                trace_attempt(
+                    "tcp",
+                    "connect",
+                    &format!("TCP connecting to {}", addr),
+                    Some("8s timeout"),
+                    false,
+                );
 
                 let socket = match tokio::time::timeout(Duration::from_secs(8), TcpStream::connect(addr))
                     .await
                 {
                     Ok(Ok(s)) => {
-                        trace("tcp", "connected", &format!("TCP connected to {}", addr), None, false);
+                        trace_attempt("tcp", "connected", &format!("TCP connected to {}", addr), None, false);
                         s
                     }
                     Ok(Err(e)) => {
-                        trace("tcp", "failed", &format!("TCP connect failed: {}", addr), Some(&e.to_string()), true);
+                        trace_attempt(
+                            "tcp",
+                            "failed",
+                            &format!("TCP connect failed: {}", addr),
+                            Some(&e.to_string()),
+                            true,
+                        );
+                        diagnostics::record_connect_attempt(diagnostics::ConnectAttemptRecord {
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64,
+                            attempt_id,
+                            host: host.to_string(),
+                            port,
+                            username: username.to_string(),
+                            addr: Some(addr.to_string()),
+                            resolved_addrs: addr_list.clone(),
+                            client_id: None,
+                            server_id: None,
+                            bytes_written: 0,
+                            bytes_read: 0,
+                            outcome: "tcp_connect_failed".to_string(),
+                            outcome_detail: Some(e.to_string()),
+                        });
                         last_error = Some(SshError::TcpConnectFailed {
                             addr,
                             detail: e.to_string(),
@@ -179,7 +405,31 @@ impl SshConnection {
                         break; // TCP failed, try next address
                     }
                     Err(_) => {
-                        trace("tcp", "timeout", &format!("TCP connect timed out: {}", addr), None, true);
+                        trace_attempt(
+                            "tcp",
+                            "timeout",
+                            &format!("TCP connect timed out: {}", addr),
+                            None,
+                            true,
+                        );
+                        diagnostics::record_connect_attempt(diagnostics::ConnectAttemptRecord {
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64,
+                            attempt_id,
+                            host: host.to_string(),
+                            port,
+                            username: username.to_string(),
+                            addr: Some(addr.to_string()),
+                            resolved_addrs: addr_list.clone(),
+                            client_id: None,
+                            server_id: None,
+                            bytes_written: 0,
+                            bytes_read: 0,
+                            outcome: "tcp_connect_timeout".to_string(),
+                            outcome_detail: None,
+                        });
                         last_error = Some(SshError::TcpConnectTimeout { addr });
                         break; // TCP timeout, try next address
                     }
@@ -187,28 +437,126 @@ impl SshConnection {
 
                 let _ = socket.set_nodelay(true);
 
-                trace("ssh", "handshake", "Starting SSH handshake", Some(&addr.to_string()), false);
+                trace_attempt(
+                    "ssh",
+                    "handshake",
+                    "Starting SSH handshake",
+                    Some(&addr.to_string()),
+                    false,
+                );
+
+                let socket = InstrumentedTcpStream::new(socket, transcript.clone());
 
                 match client::connect_stream(config.clone(), socket, ClientHandler).await {
                     Ok(h) => {
-                        trace("ssh", "handshake_ok", "SSH handshake successful", None, false);
+                        let diag = transcript.snapshot(&attempt_id);
+                        trace_attempt(
+                            "ssh",
+                            "handshake_ok",
+                            "SSH handshake successful",
+                            diag.server_id.as_deref(),
+                            false,
+                        );
+                        diagnostics::record_connect_attempt(diagnostics::ConnectAttemptRecord {
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64,
+                            attempt_id: attempt_id.clone(),
+                            host: host.to_string(),
+                            port,
+                            username: username.to_string(),
+                            addr: Some(addr.to_string()),
+                            resolved_addrs: addr_list.clone(),
+                            client_id: diag.client_id.clone(),
+                            server_id: diag.server_id.clone(),
+                            bytes_written: diag.bytes_written,
+                            bytes_read: diag.bytes_read,
+                            outcome: "handshake_ok".to_string(),
+                            outcome_detail: None,
+                        });
                         handle = Some(h);
                         break;
                     }
                     Err(e) => {
                         let msg = e.to_string();
-                        if msg == "JoinError" {
-                            trace("ssh", "join_error", "SSH handshake JoinError (will retry)", Some(&format!("attempt {}/2", attempt + 1)), true);
-                            last_error = Some(SshError::HandshakeJoinAborted { addr });
-                            // JoinError: retry once with delay (continue inner loop)
-                            continue;
-                        } else {
-                            trace("ssh", "handshake_failed", "SSH handshake failed", Some(&msg), true);
-                            last_error = Some(SshError::HandshakeFailed {
-                                addr,
-                                detail: msg,
-                            });
-                            break; // Other handshake error, try next address
+                        let diag = transcript.snapshot(&attempt_id);
+
+                        match e {
+                            russh::Error::Join(_) => {
+                                let detail = format!(
+                                    "attempt {}/2; err={}; server_id={}",
+                                    attempt + 1,
+                                    msg,
+                                    diag.server_id
+                                        .clone()
+                                        .unwrap_or_else(|| "unknown".to_string())
+                                );
+                                trace_attempt(
+                                    "ssh",
+                                    "join_error",
+                                    "SSH handshake JoinError (will retry)",
+                                    Some(&detail),
+                                    true,
+                                );
+                                diagnostics::record_connect_attempt(diagnostics::ConnectAttemptRecord {
+                                    timestamp: std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_millis() as u64,
+                                    attempt_id: attempt_id.clone(),
+                                    host: host.to_string(),
+                                    port,
+                                    username: username.to_string(),
+                                    addr: Some(addr.to_string()),
+                                    resolved_addrs: addr_list.clone(),
+                                    client_id: diag.client_id.clone(),
+                                    server_id: diag.server_id.clone(),
+                                    bytes_written: diag.bytes_written,
+                                    bytes_read: diag.bytes_read,
+                                    outcome: "handshake_join_error".to_string(),
+                                    outcome_detail: Some(msg.clone()),
+                                });
+                                last_error = Some(SshError::HandshakeJoinAborted {
+                                    addr,
+                                    detail: Some(msg),
+                                    diag: Some(diag),
+                                });
+                                continue;
+                            }
+                            _ => {
+                                trace_attempt(
+                                    "ssh",
+                                    "handshake_failed",
+                                    "SSH handshake failed",
+                                    Some(&msg),
+                                    true,
+                                );
+                                diagnostics::record_connect_attempt(diagnostics::ConnectAttemptRecord {
+                                    timestamp: std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_millis() as u64,
+                                    attempt_id: attempt_id.clone(),
+                                    host: host.to_string(),
+                                    port,
+                                    username: username.to_string(),
+                                    addr: Some(addr.to_string()),
+                                    resolved_addrs: addr_list.clone(),
+                                    client_id: diag.client_id.clone(),
+                                    server_id: diag.server_id.clone(),
+                                    bytes_written: diag.bytes_written,
+                                    bytes_read: diag.bytes_read,
+                                    outcome: "handshake_failed".to_string(),
+                                    outcome_detail: Some(msg.clone()),
+                                });
+                                last_error = Some(SshError::HandshakeFailed {
+                                    addr,
+                                    detail: msg,
+                                    diag: Some(diag),
+                                });
+                                break;
+                            }
                         }
                     }
                 }

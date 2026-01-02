@@ -1,0 +1,24 @@
+[package]
+name = "russh-util"
+version = "0.48.0"
+edition = "2021"
+rust-version = "1.65"
+license = "Apache-2.0"
+description = "Runtime abstraction utilities for russh (patched for richer JoinError diagnostics)."
+repository = "https://github.com/warp-tech/russh"
+
+[lib]
+name = "russh_util"
+path = "src/lib.rs"
+
+[dependencies]
+chrono = "0.4.38"
+tokio = { version = "1.17", features = ["sync", "macros"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1.17", features = ["io-util", "rt-multi-thread", "rt"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4.43"
+
