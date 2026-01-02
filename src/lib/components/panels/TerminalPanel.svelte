@@ -8,9 +8,10 @@
 
 	interface Props {
 		terminalId: string;
+		active?: boolean;
 	}
 
-	let { terminalId }: Props = $props();
+	let { terminalId, active = false }: Props = $props();
 
 	let terminalContainer: HTMLDivElement;
 	let terminal: TerminalType | null = null;
@@ -65,6 +66,10 @@
 
 		terminal.open(terminalContainer);
 		fitAddon.fit();
+		if (active) {
+			// Focus the terminal input when first created (especially important on mobile/keyboard-driven workflows).
+			terminal.focus();
+		}
 
 		// Handle user input
 		terminal.onData(async (data) => {
@@ -122,6 +127,21 @@
 
 	onMount(() => {
 		initTerminal();
+	});
+
+	$effect(() => {
+		if (!active) return;
+		if (!terminal) return;
+
+		// When a terminal panel becomes visible again, refit and focus so input works immediately.
+		queueMicrotask(() => {
+			try {
+				fitAddon?.fit();
+				terminal?.focus();
+			} catch {
+				// ignore focus/fit errors
+			}
+		});
 	});
 
 	onDestroy(() => {

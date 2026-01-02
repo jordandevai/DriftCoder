@@ -102,38 +102,40 @@
 			onselect={handleTabSelect}
 			onclose={handleTabClose}
 		/>
+	{/if}
 
-		<!-- Panel Content -->
-		<div class="flex-1 overflow-hidden relative">
+	<!-- Panel Content -->
+	<div class="flex-1 overflow-hidden relative">
+		{#if group && group.panels.length > 0}
 			<!-- Editor panels: only the active session (editors are session-scoped via fileStore) -->
 			{#each group.panels.filter((p) => p.type === 'editor') as panel (panel.id)}
 				<div class="absolute inset-0 {isActiveEditorPanel(panel) ? '' : 'invisible pointer-events-none'}">
 					<EditorPanel filePath={panel.filePath || ''} />
 				</div>
 			{/each}
-
-			<!-- Terminal panels: keep ALL sessions mounted for persistence -->
-			{#each allTerminalPanels as panel (`${panel.sessionId}-${panel.id}`)}
-				<div class="absolute inset-0 {isVisibleTerminalPanel(panel) ? '' : 'invisible pointer-events-none'}">
-					<TerminalPanel terminalId={panel.terminalId || ''} />
+		{:else}
+			<!-- No panels state (keep terminals mounted below for cross-session persistence) -->
+			<div class="absolute inset-0 flex items-center justify-center text-gray-500">
+				<div class="text-center">
+					<svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							stroke-width="1"
+							d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+						/>
+					</svg>
+					<p class="text-lg mb-1">No files open</p>
+					<p class="text-sm">Open a file from the file tree to start editing</p>
 				</div>
-			{/each}
-		</div>
-	{:else}
-		<!-- No panels state -->
-		<div class="h-full flex items-center justify-center text-gray-500">
-			<div class="text-center">
-				<svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						stroke-width="1"
-						d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-					/>
-				</svg>
-				<p class="text-lg mb-1">No files open</p>
-				<p class="text-sm">Open a file from the file tree to start editing</p>
 			</div>
-		</div>
-	{/if}
+		{/if}
+
+		<!-- Terminal panels: keep ALL sessions mounted for persistence -->
+		{#each allTerminalPanels as panel (`${panel.sessionId}-${panel.id}`)}
+			<div class="absolute inset-0 {isVisibleTerminalPanel(panel) ? '' : 'invisible pointer-events-none'}">
+				<TerminalPanel terminalId={panel.terminalId || ''} active={isVisibleTerminalPanel(panel)} />
+			</div>
+		{/each}
+	</div>
 </div>
