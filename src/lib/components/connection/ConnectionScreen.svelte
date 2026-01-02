@@ -44,7 +44,7 @@
 
 <div class="h-full flex flex-col items-center justify-center p-8 bg-editor-bg relative">
 	<!-- Floating toolbar: Debug + Notifications -->
-	<div class="absolute top-4 right-4 flex items-center gap-2">
+	<div class="absolute right-4 flex items-center gap-2" style="top: calc(1rem + env(safe-area-inset-top, 0px));">
 		<button
 			class="flex items-center gap-1.5 px-3 py-1.5 bg-panel-bg hover:bg-panel-border rounded-lg transition-colors text-gray-400 text-sm"
 			onclick={() => diagnosticsStore.open()}

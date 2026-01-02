@@ -158,6 +158,7 @@
 
 <div
 	class="menu-toolbar h-9 flex items-center bg-sidebar-bg border-b border-panel-border px-1 select-none relative z-50"
+	style="padding-top: env(safe-area-inset-top, 0px);"
 >
 	<!-- Hamburger toggle button -->
 	<button
