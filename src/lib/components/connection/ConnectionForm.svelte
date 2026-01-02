@@ -113,7 +113,24 @@
 	</div>
 
 	<form class="p-4 space-y-4" onsubmit={handleSubmit}>
-		<Input label="Host" placeholder="192.168.1.100" bind:value={host} required />
+		<div class="flex items-center justify-between gap-3">
+			<label class="flex items-center gap-2 cursor-pointer select-none">
+				<input type="checkbox" bind:checked={saveConnection} class="text-accent rounded" />
+				<span class="text-sm text-gray-300">Save connection</span>
+			</label>
+			<div class="text-xs text-gray-500">{saveConnection ? 'Saved' : 'Quick connect'}</div>
+		</div>
+
+		{#if saveConnection}
+			<Input label="Connection Name" placeholder="My Server" bind:value={name} />
+		{/if}
+
+		<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+			<div class="sm:col-span-2">
+				<Input label="Server" placeholder="192.168.1.100" bind:value={host} required />
+			</div>
+			<Input label="Port" type="number" bind:value={port} required />
+		</div>
 
 		<Input label="Username" placeholder="user" bind:value={username} required />
 
@@ -145,45 +162,32 @@
 		</fieldset>
 
 		{#if authMethod === 'key'}
-			<Input label="Key Path" placeholder="~/.ssh/id_rsa" bind:value={keyPath} />
+			<details class="bg-editor-bg border border-panel-border rounded-lg p-3">
+				<summary class="cursor-pointer text-sm text-gray-300 select-none">Advanced</summary>
+				<div class="pt-3 space-y-3">
+					<Input label="Key Path" placeholder="~/.ssh/id_rsa" bind:value={keyPath} />
+				</div>
+			</details>
 		{:else}
 			<Input label="Password" type="password" bind:value={password} required />
 		{/if}
 
-		<details class="bg-editor-bg border border-panel-border rounded-lg p-3">
-			<summary class="cursor-pointer text-sm text-gray-300 select-none">Advanced</summary>
-			<div class="pt-3 space-y-3">
-				<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-					<div class="sm:col-span-2">
-						<Input label="Connection Name" placeholder="My Server" bind:value={name} />
-					</div>
-					<Input label="Port" type="number" bind:value={port} required />
-				</div>
-
-				<!-- Save checkbox -->
-				<label class="flex items-center gap-2 cursor-pointer">
-					<input type="checkbox" bind:checked={saveConnection} class="text-accent rounded" />
-					<span class="text-sm text-gray-400">Save this connection</span>
-				</label>
-
-				<div class="flex items-center gap-3">
-					<Button variant="secondary" onclick={handleTest} loading={testing}>Test</Button>
-					{#if testResult}
-						<div
-							class="flex-1 p-3 rounded text-sm {testResult === 'success'
-								? 'bg-success/10 text-success border border-success'
-								: 'bg-error/10 text-error border border-error'}"
-						>
-							{#if testResult === 'success'}
-								Connection successful!
-							{:else}
-								Connection failed{testError ? `: ${testError}` : ''}
-							{/if}
-						</div>
+		<div class="flex items-center gap-3">
+			<Button type="button" variant="secondary" onclick={handleTest} loading={testing}>Test</Button>
+			{#if testResult}
+				<div
+					class="flex-1 p-3 rounded text-sm {testResult === 'success'
+						? 'bg-success/10 text-success border border-success'
+						: 'bg-error/10 text-error border border-error'}"
+				>
+					{#if testResult === 'success'}
+						Connection successful!
+					{:else}
+						Connection failed{testError ? `: ${testError}` : ''}
 					{/if}
 				</div>
-			</div>
-		</details>
+			{/if}
+		</div>
 
 		<!-- Actions -->
 		<div class="flex gap-3 pt-2">

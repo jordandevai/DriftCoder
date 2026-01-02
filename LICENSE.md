@@ -1,4 +1,4 @@
-# DriftCoder Community License (Personal & Non-Commercial Use) v1
+# DriftCoder Community License (Personal & Non-Commercial Use) v1.1
 
 Copyright (c) 2026 Jordan Gonzales, Jtech Minds LLC
 
@@ -43,6 +43,7 @@ Subject to the terms of this license, the Licensor grants You a worldwide, royal
 You may not:
 - use the Software for Commercial Use without a commercial license,
 - remove or obscure any copyright, attribution, or license notices,
+- remove, bypass, or circumvent licensing, billing, or entitlement mechanisms,
 - use the Licensor’s names, trademarks, or logos (including “DriftCoder”, “DriftCode”, “Jtech Minds”, and associated marks) except for reasonable and customary attribution.
 
 ---
@@ -65,7 +66,7 @@ Sections 3, 6, and 7 survive termination.
 
 ## 6. Disclaimer of Warranty
 
-THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+THE SOFTWARE IS PROVIDED **“AS IS”**, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
 
 ---
 

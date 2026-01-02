@@ -1,11 +1,11 @@
-# DriftCoder Commercial License (Subscription) v1
+# DriftCoder Commercial License (Subscription) v1.1
 
 Copyright (c) 2026 Jordan Gonzales, Jtech Minds LLC
 
 This document describes the **Commercial License** for DriftCoder (“Software”).
 It is intended to be used in conjunction with the repository’s **Community / Personal License** (`LICENSE.md`) and grants additional rights for **Commercial Use**.
 
-**This is not legal advice.** If you require a tailored agreement (enterprise terms, MSA, procurement requirements, or support SLAs), please contact the Licensor via [https://driftcoder.com](https://driftcoder.com).
+**This is not legal advice.** If you require tailored terms (enterprise agreements, MSAs, procurement requirements, or support SLAs), please contact the Licensor via https://driftcoder.com.
 
 ---
 
@@ -54,26 +54,25 @@ Pricing may be updated for future subscription periods. Any changes will not app
 Your Commercial License remains active **only while Your subscription is current**.
 
 If payment is not received when due:
-
-* this License automatically terminates, and
-* You must immediately cease all Commercial Use of the Software.
+- this License automatically terminates, and
+- You must immediately cease all Commercial Use of the Software.
 
 Upon termination for any reason, You must:
+- stop all Commercial Use of the Software, and
+- uninstall, delete, or otherwise destroy all copies used for Commercial Use.
 
-* stop all Commercial Use of the Software, and
-* uninstall, delete, or otherwise destroy all copies used for Commercial Use.
-
-Sections that by their nature should survive termination shall survive, including but not limited to Sections 6, 7, 8, and 9.
+Sections that by their nature should survive termination shall survive, including Sections 6, 7, 8, and 9.
 
 ---
 
-## 6. Redistribution, Hosting, and Sublicensing
+## 6. Redistribution, Hosting, and Circumvention
 
 Unless explicitly agreed to in writing by the Licensor, this License **does not grant You the right to**:
 
-* redistribute the Software to third parties as a standalone product,
-* sublicense the Software to third parties,
-* offer the Software as a hosted or managed service to third parties (including SaaS, PaaS, or similar offerings).
+- redistribute the Software to third parties as a standalone product,
+- sublicense the Software to third parties,
+- offer the Software as a hosted or managed service to third parties (including SaaS, PaaS, or similar offerings),
+- remove, bypass, or circumvent licensing, subscription, billing, or entitlement mechanisms.
 
 This License is for **internal commercial use only**.
 
@@ -105,5 +104,5 @@ This License shall be governed by and construed in accordance with the laws of t
 
 ## 10. Contact Information
 
-Licensor: Jordan Gonzales — Jtech Minds LLC
-Websites: [https://jtechminds.com](https://jtechminds.com) • [https://driftcoder.com](https://driftcoder.com)
+Licensor: Jordan Gonzales — Jtech Minds LLC  
+Websites: https://jtechminds.com • https://driftcoder.com
