@@ -34,7 +34,7 @@
 	}
 </script>
 
-<div class="h-6 flex items-center px-2 bg-status-bg text-status-fg text-xs select-none" style="padding-bottom: env(safe-area-inset-bottom, 0px);">
+<div class="flex items-center px-2 bg-status-bg text-status-fg text-xs select-none" style="height: calc(1.5rem + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px);">
 	<!-- Connection Status -->
 	{#if $activeSession}
 		<div

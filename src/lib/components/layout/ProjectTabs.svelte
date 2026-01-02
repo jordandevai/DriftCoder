@@ -84,13 +84,13 @@
 				</div>
 			</div>
 
-			<!-- Close button -->
+			<!-- Close button (44x44 touch target) -->
 			<button
-				class="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-panel-border transition-opacity flex-shrink-0"
+				class="w-11 h-11 flex items-center justify-center rounded opacity-60 hover:opacity-100 hover:bg-panel-border transition-opacity flex-shrink-0 -mr-2"
 				onclick={(e) => closeSession(e, session)}
 				aria-label="Close project"
 			>
-				<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
 				</svg>
 			</button>

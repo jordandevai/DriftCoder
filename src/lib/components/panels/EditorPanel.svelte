@@ -222,16 +222,17 @@
 <div class="h-full w-full overflow-hidden relative flex flex-col">
 	{#if file?.remoteChanged}
 		<div class="flex items-center justify-between gap-2 px-3 py-2 text-xs border-b border-panel-border bg-warning/10">
-			<div class="text-gray-200">
-				Server version changed while you were editing.
-			</div>
+			<div class="text-gray-200">Server version changed while you were editing.</div>
 			<div class="flex items-center gap-2">
-				<Button size="sm" variant="ghost" onclick={() => conflictStore.open(filePath)}>
-					Compare
-				</Button>
-				<Button size="sm" variant="ghost" onclick={handleReloadFromServer}>
-					Reload Server
-				</Button>
+				<Button size="sm" variant="ghost" onclick={() => conflictStore.open(filePath)}>Compare</Button>
+				<Button size="sm" variant="ghost" onclick={handleReloadFromServer}>Reload Server</Button>
+			</div>
+		</div>
+	{:else if file?.remoteUpdateAvailable}
+		<div class="flex items-center justify-between gap-2 px-3 py-2 text-xs border-b border-panel-border bg-panel-bg">
+			<div class="text-gray-200">Server version updated.</div>
+			<div class="flex items-center gap-2">
+				<Button size="sm" variant="ghost" onclick={() => fileStore.reloadFileFromRemote(filePath)}>Reload</Button>
 			</div>
 		</div>
 	{/if}

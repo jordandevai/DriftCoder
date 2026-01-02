@@ -5,7 +5,10 @@ import { workspaceStore, activeSession } from './workspace';
 import { detectLanguage } from '$utils/languages';
 import { sortEntries } from '$utils/file-tree';
 
-const DEFAULT_REMOTE_CHECK_STALE_MS = 10_000;
+const DEFAULT_REMOTE_CHECK_STALE_MS = 5_000;
+const REMOTE_POLL_TICK_MS = 2_000;
+
+type FileMeta = { path: string; size: number; mtime: number };
 
 // Initial state for when no session is active
 const emptyState: FileState = {
@@ -76,17 +79,18 @@ const fileStateStore = derived(activeSession, ($session) => {
 // Create the file store with methods
 function createFileStore() {
 	let remoteSyncCleanup: (() => void) | null = null;
+	let remotePollTimer: number | null = null;
 
-	async function fetchRemoteFileInternal(path: string): Promise<{ content: string; mtime: number }> {
+	async function fetchRemoteFileInternal(path: string): Promise<{ content: string; mtime: number; size: number }> {
 		const session = requireActiveSession();
 		const connId = session.connectionId;
 
-		const result = await invoke<{ content: string; mtime: number }>('sftp_read_file_with_stat', {
+		const result = await invoke<{ content: string; mtime: number; size: number }>('sftp_read_file_with_stat', {
 			connId,
 			path
 		});
 
-		return { content: result.content, mtime: result.mtime };
+		return { content: result.content, mtime: result.mtime, size: result.size };
 	}
 
 	async function reloadFileFromRemoteInternal(path: string): Promise<void> {
@@ -104,9 +108,12 @@ function createFileStore() {
 				content: remote.content,
 				dirty: false,
 				remoteMtime: remote.mtime,
+				remoteSize: remote.size,
 				remoteLastCheckedAt: Date.now(),
 				remoteChanged: false,
-				remoteMtimeOnServer: undefined
+				remoteUpdateAvailable: false,
+				remoteMtimeOnServer: undefined,
+				remoteSizeOnServer: undefined
 			});
 			return { ...s, openFiles: newOpenFiles };
 		});
@@ -114,7 +121,7 @@ function createFileStore() {
 
 	async function checkRemoteForOpenFile(
 		path: string,
-		opts?: { onlyIfStaleMs?: number; trigger?: 'focus' | 'activate' | 'manual' }
+		opts?: { onlyIfStaleMs?: number; trigger?: 'focus' | 'activate' | 'poll' | 'manual' }
 	): Promise<void> {
 		const session = get(activeSession);
 		if (!session) return;
@@ -131,10 +138,9 @@ function createFileStore() {
 			return;
 		}
 
-		let remoteMtime: number;
+		let meta: FileMeta;
 		try {
-			const remoteStat = await invoke<{ mtime: number }>('sftp_stat', { connId, path });
-			remoteMtime = remoteStat.mtime;
+			meta = await invoke<FileMeta>('sftp_stat', { connId, path });
 		} catch {
 			// If the connection is down or the stat fails transiently, avoid spamming UI.
 			return;
@@ -146,22 +152,33 @@ function createFileStore() {
 		const latest = latestSession.fileState.openFiles.get(path);
 		if (!latest) return;
 
+		const isActive = latestSession.fileState.activeFilePath === path;
+		const trigger = opts?.trigger ?? 'manual';
+
 		updateFileState(sessionId, (s) => {
 			const file = s.openFiles.get(path);
 			if (!file) return s;
 
+			const remoteNewer =
+				meta.mtime > file.remoteMtime ||
+				(file.remoteSize !== undefined && meta.size !== file.remoteSize);
+
 			const updated: OpenFile = {
 				...file,
 				remoteLastCheckedAt: now,
-				remoteMtimeOnServer: remoteMtime,
+				remoteMtimeOnServer: meta.mtime,
+				remoteSizeOnServer: meta.size,
 				// Only surface a "remote changed" indicator when the user has local edits.
-				remoteChanged: remoteMtime > file.remoteMtime && file.dirty ? true : false
+				remoteChanged: remoteNewer && file.dirty ? true : false,
+				remoteUpdateAvailable: remoteNewer && !file.dirty ? true : false
 			};
 
 			// If remote isn't newer, clear any prior indicator.
-			if (remoteMtime <= file.remoteMtime) {
+			if (!remoteNewer) {
 				updated.remoteChanged = false;
 				updated.remoteMtimeOnServer = undefined;
+				updated.remoteSizeOnServer = undefined;
+				updated.remoteUpdateAvailable = false;
 			}
 
 			const newOpenFiles = new Map(s.openFiles);
@@ -169,13 +186,20 @@ function createFileStore() {
 			return { ...s, openFiles: newOpenFiles };
 		});
 
-		// If the file is clean and the remote changed, refresh the local view automatically.
+		// If the file is clean and the remote changed:
+		// - auto reload if not currently active OR if this was a focus/activate/manual trigger
+		// - if active during a background poll, avoid hot-swapping and let the banner offer reload
 		const afterUpdateSession = get(activeSession);
 		if (!afterUpdateSession || afterUpdateSession.id !== sessionId) return;
 		const afterUpdateFile = afterUpdateSession.fileState.openFiles.get(path);
 		if (!afterUpdateFile) return;
-		if (!afterUpdateFile.dirty && remoteMtime > afterUpdateFile.remoteMtime) {
-			await reloadFileFromRemoteInternal(path);
+		const remoteNewer =
+			meta.mtime > afterUpdateFile.remoteMtime ||
+			(afterUpdateFile.remoteSize !== undefined && meta.size !== afterUpdateFile.remoteSize);
+		if (!afterUpdateFile.dirty && remoteNewer) {
+			if (!(isActive && trigger === 'poll')) {
+				await reloadFileFromRemoteInternal(path);
+			}
 		}
 	}
 
@@ -202,9 +226,21 @@ function createFileStore() {
 			window.addEventListener('focus', onFocus);
 			document.addEventListener('visibilitychange', onVisibility);
 
+			remotePollTimer = window.setInterval(() => {
+				if (document.hidden) return;
+				const session = get(activeSession);
+				const path = session?.fileState.activeFilePath;
+				if (!path) return;
+				void checkRemoteForOpenFile(path, { trigger: 'poll' });
+			}, REMOTE_POLL_TICK_MS);
+
 			remoteSyncCleanup = () => {
 				window.removeEventListener('focus', onFocus);
 				document.removeEventListener('visibilitychange', onVisibility);
+				if (remotePollTimer !== null) {
+					window.clearInterval(remotePollTimer);
+					remotePollTimer = null;
+				}
 				remoteSyncCleanup = null;
 			};
 		},
@@ -217,7 +253,7 @@ function createFileStore() {
 			await checkRemoteForOpenFile(path, { onlyIfStaleMs: 0, trigger: 'manual' });
 		},
 
-		async fetchRemoteFile(path: string): Promise<{ content: string; mtime: number }> {
+		async fetchRemoteFile(path: string): Promise<{ content: string; mtime: number; size: number }> {
 			return await fetchRemoteFileInternal(path);
 		},
 
@@ -320,7 +356,7 @@ function createFileStore() {
 				return;
 			}
 
-			const result = await invoke<{ content: string; mtime: number }>('sftp_read_file_with_stat', {
+			const result = await invoke<{ content: string; mtime: number; size: number }>('sftp_read_file_with_stat', {
 				connId,
 				path
 			});
@@ -333,7 +369,11 @@ function createFileStore() {
 				content: result.content,
 				language,
 				dirty: false,
-				remoteMtime: result.mtime
+				remoteMtime: result.mtime,
+				remoteSize: result.size,
+				remoteLastCheckedAt: Date.now(),
+				remoteChanged: false,
+				remoteUpdateAvailable: false
 			};
 
 			updateFileState(sessionId, (s) => {
@@ -384,12 +424,15 @@ function createFileStore() {
 			if (!file) return;
 
 			// Check for conflicts
-			const remoteStat = await invoke<{ mtime: number }>('sftp_stat', { connId, path });
-			if (remoteStat.mtime > file.remoteMtime) {
+			const remoteStat = await invoke<FileMeta>('sftp_stat', { connId, path });
+			const remoteNewer =
+				remoteStat.mtime > file.remoteMtime ||
+				(file.remoteSize !== undefined && remoteStat.size !== file.remoteSize);
+			if (remoteNewer) {
 				throw new Error('CONFLICT');
 			}
 
-			const result = await invoke<{ mtime: number }>('sftp_write_file', {
+			const result = await invoke<FileMeta>('sftp_write_file', {
 				connId,
 				path,
 				content: file.content
@@ -402,7 +445,13 @@ function createFileStore() {
 					newOpenFiles.set(path, {
 						...updatedFile,
 						dirty: false,
-						remoteMtime: result.mtime
+						remoteMtime: result.mtime,
+						remoteSize: result.size,
+						remoteLastCheckedAt: Date.now(),
+						remoteChanged: false,
+						remoteUpdateAvailable: false,
+						remoteMtimeOnServer: undefined,
+						remoteSizeOnServer: undefined
 					});
 				}
 				return { ...s, openFiles: newOpenFiles };
@@ -420,7 +469,7 @@ function createFileStore() {
 
 			const content = contentOverride ?? file!.content;
 
-			const result = await invoke<{ mtime: number }>('sftp_write_file', {
+			const result = await invoke<FileMeta>('sftp_write_file', {
 				connId,
 				path,
 				content
@@ -435,7 +484,13 @@ function createFileStore() {
 					...existing,
 					content,
 					dirty: false,
-					remoteMtime: result.mtime
+					remoteMtime: result.mtime,
+					remoteSize: result.size,
+					remoteLastCheckedAt: Date.now(),
+					remoteChanged: false,
+					remoteUpdateAvailable: false,
+					remoteMtimeOnServer: undefined,
+					remoteSizeOnServer: undefined
 				});
 				return { ...s, openFiles: newOpenFiles };
 			});

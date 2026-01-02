@@ -12,6 +12,8 @@
 	body {
 		@apply h-full w-full overflow-hidden;
 		font-family: var(--font-sans);
+		padding-left: env(safe-area-inset-left, 0px);
+		padding-right: env(safe-area-inset-right, 0px);
 	}
 
 	* {
