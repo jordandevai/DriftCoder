@@ -315,6 +315,24 @@ impl Handler for ClientHandler {
             }),
         }
     }
+
+    async fn disconnected(
+        &mut self,
+        reason: russh::client::DisconnectReason<Self::Error>,
+    ) -> Result<(), Self::Error> {
+        emit_trace(
+            &self.app,
+            TraceEvent::new("ssh", "disconnected", "SSH session disconnected")
+                .with_correlation_id(self.correlation_id.clone())
+                .with_detail(format!("{reason:?}"))
+                .error(),
+        );
+
+        match reason {
+            russh::client::DisconnectReason::ReceivedDisconnect(_) => Ok(()),
+            russh::client::DisconnectReason::Error(e) => Err(e),
+        }
+    }
 }
 
 /// Represents an active SSH connection

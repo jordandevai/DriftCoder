@@ -61,15 +61,27 @@ pub async fn terminal_write(
 ) -> Result<(), IpcError> {
     let mut app_state = state.lock().await;
 
-    let terminal = app_state
-        .get_terminal_mut(&term_id)
-        .ok_or_else(|| IpcError::new("terminal_not_found", "Terminal not found"))?;
+    let write_result = {
+        let terminal = app_state
+            .get_terminal_mut(&term_id)
+            .ok_or_else(|| IpcError::new("terminal_not_found", "Terminal not found"))?;
+        terminal.write(&data).await
+    };
 
-    terminal.write(&data).await.map_err(|e| {
-        IpcError::new("terminal_write_failed", "Terminal write failed")
-            .with_raw(e.to_string())
-            .with_context(json!({ "terminalId": term_id }))
-    })?;
+    if let Err(e) = write_result {
+        // If the PTY task has ended (mpsc channel closed), drop the terminal so subsequent calls
+        // become `terminal_not_found` instead of spamming repeated write failures.
+        let raw = e.to_string();
+        if raw.to_lowercase().contains("channel closed") {
+            let _ = app_state.remove_terminal(&term_id);
+        }
+
+        return Err(
+            IpcError::new("terminal_write_failed", "Terminal write failed")
+                .with_raw(raw)
+                .with_context(json!({ "terminalId": term_id })),
+        );
+    }
 
     Ok(())
 }

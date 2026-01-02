@@ -8,7 +8,7 @@ pub mod trace;
 
 use state::AppState;
 use std::sync::Arc;
-use tauri::RunEvent;
+use tauri::{image::Image, Manager, RunEvent};
 use tokio::sync::Mutex;
 use trace::{emit_trace, is_trace_enabled, TraceEvent};
 
@@ -22,6 +22,19 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(app_state)
+        .setup(|app| {
+            // Set window icon for Linux dev mode (production builds use bundle icons)
+            #[cfg(target_os = "linux")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let icon_bytes = include_bytes!("../icons/icon.png");
+                    if let Ok(icon) = Image::from_bytes(icon_bytes) {
+                        let _ = window.set_icon(icon);
+                    }
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             // Connection commands
             commands::connection::ssh_connect,

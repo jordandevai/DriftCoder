@@ -29,7 +29,12 @@ pub struct TerminalOutputEvent {
 pub struct PtySession {
     pub terminal_id: String,
     pub connection_id: String,
-    write_tx: mpsc::Sender<Vec<u8>>,
+    cmd_tx: mpsc::Sender<PtyCommand>,
+}
+
+enum PtyCommand {
+    Write(Vec<u8>),
+    Close,
 }
 
 impl PtySession {
@@ -41,7 +46,7 @@ impl PtySession {
         app: AppHandle,
         working_dir: Option<String>,
     ) -> Self {
-        let (write_tx, mut write_rx) = mpsc::channel::<Vec<u8>>(100);
+        let (cmd_tx, mut cmd_rx) = mpsc::channel::<PtyCommand>(100);
 
         // Clone for the read task
         let term_id = terminal_id.clone();
@@ -90,12 +95,21 @@ impl PtySession {
                         }
                     }
                     // Handle outgoing data to the PTY
-                    Some(data) = write_rx.recv() => {
-                        if let Err(e) = channel_stream.write_all(&data).await {
-                            log::error!("Error writing to PTY: {}", e);
-                            break;
+                    cmd = cmd_rx.recv() => {
+                        match cmd {
+                            Some(PtyCommand::Write(data)) => {
+                                if let Err(e) = channel_stream.write_all(&data).await {
+                                    log::error!("Error writing to PTY: {}", e);
+                                    let _ = channel_stream.shutdown().await;
+                                    break;
+                                }
+                            }
+                            Some(PtyCommand::Close) | None => {
+                                let _ = channel_stream.shutdown().await;
+                                break;
+                            }
                         }
-                    }
+                    },
                 }
             }
         });
@@ -103,14 +117,14 @@ impl PtySession {
         Self {
             terminal_id,
             connection_id,
-            write_tx,
+            cmd_tx,
         }
     }
 
     /// Write data to the PTY
     pub async fn write(&mut self, data: &[u8]) -> Result<(), PtyError> {
-        self.write_tx
-            .send(data.to_vec())
+        self.cmd_tx
+            .send(PtyCommand::Write(data.to_vec()))
             .await
             .map_err(|e| PtyError::ChannelError(e.to_string()))?;
         Ok(())
@@ -131,7 +145,7 @@ impl PtySession {
 
     /// Close the PTY session
     pub async fn close(&mut self) -> Result<(), PtyError> {
-        log::info!("PTY session closing: {}", self.terminal_id);
+        let _ = self.cmd_tx.send(PtyCommand::Close).await;
         Ok(())
     }
 }
