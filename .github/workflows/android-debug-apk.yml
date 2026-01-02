@@ -42,7 +42,6 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-            src-tauri/gen/android/.gradle
           key: ${{ runner.os }}-gradle-${{ hashFiles('package-lock.json', 'src-tauri/Cargo.lock', 'src-tauri/tauri.conf.json') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
@@ -74,7 +73,10 @@ jobs:
         run: npm run check
 
       - name: Initialize Android target (Tauri)
-        run: npx tauri android init --ci --skip-targets-install
+        run: |
+          # Clean any stale gen/android folder from cache restoration
+          rm -rf src-tauri/gen/android
+          npx tauri android init --ci --skip-targets-install
 
       - name: Build debug APK (arm64)
         run: npx tauri android build --ci --debug --apk true --aab false --target aarch64
