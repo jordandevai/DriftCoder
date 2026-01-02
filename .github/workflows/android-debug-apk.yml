@@ -121,7 +121,7 @@ jobs:
           npx tauri android init --ci --skip-targets-install
 
       - name: Generate Android icons
-        run: npx tauri icon static/logo_v2_cropped.png
+        run: npx tauri icon static/logo_v2_square.png
 
       - name: Build debug APK (arm64)
         run: npx tauri android build --ci --debug --apk true --aab false --target aarch64
