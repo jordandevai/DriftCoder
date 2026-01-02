@@ -39,7 +39,7 @@ pub async fn sftp_list_dir(
     let entries = connection
         .list_dir(&path)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("SFTP list directory failed for '{}': {}", path, e))?;
 
     let file_entries: Vec<FileEntry> = entries
         .into_iter()
@@ -77,7 +77,7 @@ pub async fn sftp_read_file(
     let content = connection
         .read_file(&path)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("SFTP read file failed for '{}': {}", path, e))?;
 
     Ok(content)
 }
@@ -99,7 +99,7 @@ pub async fn sftp_write_file(
     connection
         .write_file(&path, &content)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("SFTP write file failed for '{}': {}", path, e))?;
 
     // Get updated file metadata
     let stat = connection.stat(&path).await.map_err(|e| e.to_string())?;
@@ -124,7 +124,10 @@ pub async fn sftp_stat(
         .get_connection_mut(&conn_id)
         .ok_or("Connection not found")?;
 
-    let stat = connection.stat(&path).await.map_err(|e| e.to_string())?;
+    let stat = connection
+        .stat(&path)
+        .await
+        .map_err(|e| format!("SFTP stat failed for '{}': {}", path, e))?;
 
     Ok(FileMeta {
         path,
@@ -149,7 +152,7 @@ pub async fn sftp_create_file(
     connection
         .create_file(&path)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("SFTP create file failed for '{}': {}", path, e))?;
 
     Ok(())
 }
@@ -170,7 +173,7 @@ pub async fn sftp_create_dir(
     connection
         .create_dir(&path)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("SFTP create directory failed for '{}': {}", path, e))?;
 
     Ok(())
 }
@@ -188,7 +191,10 @@ pub async fn sftp_delete(
         .get_connection_mut(&conn_id)
         .ok_or("Connection not found")?;
 
-    connection.delete(&path).await.map_err(|e| e.to_string())?;
+    connection
+        .delete(&path)
+        .await
+        .map_err(|e| format!("SFTP delete failed for '{}': {}", path, e))?;
 
     Ok(())
 }
@@ -210,7 +216,7 @@ pub async fn sftp_rename(
     connection
         .rename(&old_path, &new_path)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("SFTP rename failed ('{}' -> '{}'): {}", old_path, new_path, e))?;
 
     Ok(())
 }

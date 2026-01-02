@@ -4,9 +4,11 @@ use crate::ssh::sftp::{SftpEntry, SftpStat};
 use async_trait::async_trait;
 use russh::client::{self, Config, Handle, Handler};
 use russh::Disconnect;
+use russh_sftp::client::error::Error as SftpClientError;
 use russh_sftp::client::SftpSession;
 use ssh_key::public::PublicKey;
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::AppHandle;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -20,6 +22,10 @@ pub enum SshError {
     AuthenticationFailed(String),
     #[error("SFTP error: {0}")]
     SftpError(String),
+    #[error("SFTP request timed out")]
+    SftpTimeout,
+    #[error("SFTP session closed")]
+    SftpSessionClosed,
     #[error("Channel error: {0}")]
     ChannelError(String),
     #[error("IO error: {0}")]
@@ -59,7 +65,11 @@ impl SshConnection {
         username: &str,
         auth: AuthMethod,
     ) -> Result<Self, SshError> {
-        let config = Config::default();
+        let mut config = Config::default();
+        // Mobile networks and some SFTP servers can be slow to respond; keepalives help
+        // prevent idle connections from being dropped while the UI is loading.
+        config.keepalive_interval = Some(Duration::from_secs(20));
+        config.keepalive_max = 3;
         let config = Arc::new(config);
         let handler = ClientHandler;
 
@@ -67,7 +77,16 @@ impl SshConnection {
 
         let mut handle = client::connect(config, &addr, handler)
             .await
-            .map_err(|e| SshError::ConnectionFailed(e.to_string()))?;
+            .map_err(|e| {
+                let msg = e.to_string();
+                if msg == "JoinError" {
+                    SshError::ConnectionFailed(
+                        "JoinError (internal SSH task aborted; often caused by a network drop or the server closing the connection early)".to_string(),
+                    )
+                } else {
+                    SshError::ConnectionFailed(msg)
+                }
+            })?;
 
         // Authenticate
         let auth_result = match &auth {
@@ -128,7 +147,9 @@ impl SshConnection {
                 ))
             })?;
 
-        let sftp = SftpSession::new(channel.into_stream())
+        // russh-sftp defaults to a 10s response timeout per request, which can be too aggressive
+        // on mobile networks and/or large directories. Set a higher timeout before init.
+        let sftp = SftpSession::new_opts(channel.into_stream(), Some(180))
             .await
             .map_err(|e| {
                 SshError::SftpError(format!(
@@ -145,13 +166,25 @@ impl SshConnection {
 
     /// List directory contents
     pub async fn list_dir(&mut self, path: &str) -> Result<Vec<SftpEntry>, SshError> {
+        match self.list_dir_once(path).await {
+            Ok(entries) => Ok(entries),
+            Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
+                // Recreate SFTP session and retry once; useful on flaky mobile networks.
+                self.sftp = None;
+                self.list_dir_once(path).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn list_dir_once(&mut self, path: &str) -> Result<Vec<SftpEntry>, SshError> {
         let sftp = self.ensure_sftp().await?;
         let sftp = sftp.lock().await;
 
         let entries = sftp
             .read_dir(path)
             .await
-            .map_err(|e| SshError::SftpError(e.to_string()))?;
+            .map_err(map_sftp_error)?;
 
         let mut result = Vec::new();
         for entry in entries {
@@ -172,13 +205,24 @@ impl SshConnection {
 
     /// Read file contents
     pub async fn read_file(&mut self, path: &str) -> Result<String, SshError> {
+        match self.read_file_once(path).await {
+            Ok(content) => Ok(content),
+            Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
+                self.sftp = None;
+                self.read_file_once(path).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn read_file_once(&mut self, path: &str) -> Result<String, SshError> {
         let sftp = self.ensure_sftp().await?;
         let sftp = sftp.lock().await;
 
         let mut file = sftp
             .open(path)
             .await
-            .map_err(|e| SshError::SftpError(e.to_string()))?;
+            .map_err(map_sftp_error)?;
 
         let mut content = Vec::new();
         file.read_to_end(&mut content)
@@ -190,13 +234,24 @@ impl SshConnection {
 
     /// Write content to a file
     pub async fn write_file(&mut self, path: &str, content: &str) -> Result<(), SshError> {
+        match self.write_file_once(path, content).await {
+            Ok(()) => Ok(()),
+            Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
+                self.sftp = None;
+                self.write_file_once(path, content).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn write_file_once(&mut self, path: &str, content: &str) -> Result<(), SshError> {
         let sftp = self.ensure_sftp().await?;
         let sftp = sftp.lock().await;
 
         let mut file = sftp
             .create(path)
             .await
-            .map_err(|e| SshError::SftpError(e.to_string()))?;
+            .map_err(map_sftp_error)?;
 
         file.write_all(content.as_bytes())
             .await
@@ -207,13 +262,24 @@ impl SshConnection {
 
     /// Get file metadata
     pub async fn stat(&mut self, path: &str) -> Result<SftpStat, SshError> {
+        match self.stat_once(path).await {
+            Ok(stat) => Ok(stat),
+            Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
+                self.sftp = None;
+                self.stat_once(path).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn stat_once(&mut self, path: &str) -> Result<SftpStat, SshError> {
         let sftp = self.ensure_sftp().await?;
         let sftp = sftp.lock().await;
 
         let metadata = sftp
             .metadata(path)
             .await
-            .map_err(|e| SshError::SftpError(e.to_string()))?;
+            .map_err(map_sftp_error)?;
 
         Ok(SftpStat {
             size: metadata.size.unwrap_or(0),
@@ -223,6 +289,17 @@ impl SshConnection {
 
     /// Get the home directory path
     pub async fn get_home_dir(&mut self) -> Result<String, SshError> {
+        match self.get_home_dir_once().await {
+            Ok(path) => Ok(path),
+            Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
+                self.sftp = None;
+                self.get_home_dir_once().await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn get_home_dir_once(&mut self) -> Result<String, SshError> {
         let sftp = self.ensure_sftp().await?;
         let sftp = sftp.lock().await;
 
@@ -231,38 +308,71 @@ impl SshConnection {
         let path = sftp
             .canonicalize(".")
             .await
-            .map_err(|e| SshError::SftpError(e.to_string()))?;
+            .map_err(map_sftp_error)?;
 
         Ok(path)
     }
 
     /// Create an empty file
     pub async fn create_file(&mut self, path: &str) -> Result<(), SshError> {
+        match self.create_file_once(path).await {
+            Ok(()) => Ok(()),
+            Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
+                self.sftp = None;
+                self.create_file_once(path).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn create_file_once(&mut self, path: &str) -> Result<(), SshError> {
         let sftp = self.ensure_sftp().await?;
         let sftp = sftp.lock().await;
 
         let _file = sftp
             .create(path)
             .await
-            .map_err(|e| SshError::SftpError(e.to_string()))?;
+            .map_err(map_sftp_error)?;
 
         Ok(())
     }
 
     /// Create a directory
     pub async fn create_dir(&mut self, path: &str) -> Result<(), SshError> {
+        match self.create_dir_once(path).await {
+            Ok(()) => Ok(()),
+            Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
+                self.sftp = None;
+                self.create_dir_once(path).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn create_dir_once(&mut self, path: &str) -> Result<(), SshError> {
         let sftp = self.ensure_sftp().await?;
         let sftp = sftp.lock().await;
 
         sftp.create_dir(path)
             .await
-            .map_err(|e| SshError::SftpError(e.to_string()))?;
+            .map_err(map_sftp_error)?;
 
         Ok(())
     }
 
     /// Delete a file or directory
     pub async fn delete(&mut self, path: &str) -> Result<(), SshError> {
+        match self.delete_once(path).await {
+            Ok(()) => Ok(()),
+            Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
+                self.sftp = None;
+                self.delete_once(path).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn delete_once(&mut self, path: &str) -> Result<(), SshError> {
         let sftp = self.ensure_sftp().await?;
         let sftp = sftp.lock().await;
 
@@ -270,7 +380,7 @@ impl SshConnection {
         if sftp.remove_file(path).await.is_err() {
             sftp.remove_dir(path)
                 .await
-                .map_err(|e| SshError::SftpError(e.to_string()))?;
+                .map_err(map_sftp_error)?;
         }
 
         Ok(())
@@ -278,12 +388,23 @@ impl SshConnection {
 
     /// Rename/move a file or directory
     pub async fn rename(&mut self, old_path: &str, new_path: &str) -> Result<(), SshError> {
+        match self.rename_once(old_path, new_path).await {
+            Ok(()) => Ok(()),
+            Err(SshError::SftpTimeout | SshError::SftpSessionClosed) => {
+                self.sftp = None;
+                self.rename_once(old_path, new_path).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn rename_once(&mut self, old_path: &str, new_path: &str) -> Result<(), SshError> {
         let sftp = self.ensure_sftp().await?;
         let sftp = sftp.lock().await;
 
         sftp.rename(old_path, new_path)
             .await
-            .map_err(|e| SshError::SftpError(e.to_string()))?;
+            .map_err(map_sftp_error)?;
 
         Ok(())
     }
@@ -327,5 +448,15 @@ impl SshConnection {
             .map_err(|e| SshError::ConnectionFailed(e.to_string()))?;
 
         Ok(())
+    }
+}
+
+fn map_sftp_error(error: SftpClientError) -> SshError {
+    match error {
+        SftpClientError::Timeout => SshError::SftpTimeout,
+        SftpClientError::UnexpectedBehavior(msg) if msg.to_lowercase().contains("session closed") => {
+            SshError::SftpSessionClosed
+        }
+        other => SshError::SftpError(other.to_string()),
     }
 }
