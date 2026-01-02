@@ -1,5 +1,4 @@
 use crate::state::AppState;
-use crate::ssh::runtime;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
@@ -13,9 +12,6 @@ pub async fn terminal_create(
     conn_id: String,
     working_dir: Option<String>,
 ) -> Result<String, String> {
-    let state = state.inner().clone();
-
-    runtime::spawn(async move {
     let terminal_id = Uuid::new_v4().to_string();
 
     let mut app_state = state.lock().await;
@@ -34,9 +30,6 @@ pub async fn terminal_create(
     log::info!("Terminal session created: {}", terminal_id);
 
     Ok(terminal_id)
-    })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Write data to a terminal
@@ -46,21 +39,15 @@ pub async fn terminal_write(
     term_id: String,
     data: Vec<u8>,
 ) -> Result<(), String> {
-    let state = state.inner().clone();
+    let mut app_state = state.lock().await;
 
-    runtime::spawn(async move {
-        let mut app_state = state.lock().await;
+    let terminal = app_state
+        .get_terminal_mut(&term_id)
+        .ok_or("Terminal not found")?;
 
-        let terminal = app_state
-            .get_terminal_mut(&term_id)
-            .ok_or("Terminal not found")?;
+    terminal.write(&data).await.map_err(|e| e.to_string())?;
 
-        terminal.write(&data).await.map_err(|e| e.to_string())?;
-
-        Ok(())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    Ok(())
 }
 
 /// Resize a terminal
@@ -71,24 +58,18 @@ pub async fn terminal_resize(
     cols: u32,
     rows: u32,
 ) -> Result<(), String> {
-    let state = state.inner().clone();
+    let mut app_state = state.lock().await;
 
-    runtime::spawn(async move {
-        let mut app_state = state.lock().await;
+    let terminal = app_state
+        .get_terminal_mut(&term_id)
+        .ok_or("Terminal not found")?;
 
-        let terminal = app_state
-            .get_terminal_mut(&term_id)
-            .ok_or("Terminal not found")?;
+    terminal
+        .resize(cols, rows)
+        .await
+        .map_err(|e| e.to_string())?;
 
-        terminal
-            .resize(cols, rows)
-            .await
-            .map_err(|e| e.to_string())?;
-
-        Ok(())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    Ok(())
 }
 
 /// Close a terminal session
@@ -97,18 +78,12 @@ pub async fn terminal_close(
     state: State<'_, Arc<Mutex<AppState>>>,
     term_id: String,
 ) -> Result<(), String> {
-    let state = state.inner().clone();
+    let mut app_state = state.lock().await;
 
-    runtime::spawn(async move {
-        let mut app_state = state.lock().await;
+    if let Some(mut terminal) = app_state.remove_terminal(&term_id) {
+        terminal.close().await.map_err(|e| e.to_string())?;
+        log::info!("Terminal session closed: {}", term_id);
+    }
 
-        if let Some(mut terminal) = app_state.remove_terminal(&term_id) {
-            terminal.close().await.map_err(|e| e.to_string())?;
-            log::info!("Terminal session closed: {}", term_id);
-        }
-
-        Ok(())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    Ok(())
 }

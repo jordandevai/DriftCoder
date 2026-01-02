@@ -1,5 +1,4 @@
 use crate::state::AppState;
-use crate::ssh::runtime;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
@@ -31,41 +30,35 @@ pub async fn sftp_list_dir(
     conn_id: String,
     path: String,
 ) -> Result<Vec<FileEntry>, String> {
-    let state = state.inner().clone();
+    let mut app_state = state.lock().await;
 
-    runtime::spawn(async move {
-        let mut app_state = state.lock().await;
+    let connection = app_state
+        .get_connection_mut(&conn_id)
+        .ok_or("Connection not found")?;
 
-        let connection = app_state
-            .get_connection_mut(&conn_id)
-            .ok_or("Connection not found")?;
+    let entries = connection
+        .list_dir(&path)
+        .await
+        .map_err(|e| format!("SFTP list directory failed for '{}': {}", path, e))?;
 
-        let entries = connection
-            .list_dir(&path)
-            .await
-            .map_err(|e| format!("SFTP list directory failed for '{}': {}", path, e))?;
+    let file_entries: Vec<FileEntry> = entries
+        .into_iter()
+        .filter(|e| e.name != "." && e.name != "..")
+        .map(|e| FileEntry {
+            name: e.name.clone(),
+            path: if path.ends_with('/') {
+                format!("{}{}", path, e.name)
+            } else {
+                format!("{}/{}", path, e.name)
+            },
+            is_directory: e.is_directory,
+            size: e.size,
+            mtime: e.mtime,
+            permissions: e.permissions,
+        })
+        .collect();
 
-        let file_entries: Vec<FileEntry> = entries
-            .into_iter()
-            .filter(|e| e.name != "." && e.name != "..")
-            .map(|e| FileEntry {
-                name: e.name.clone(),
-                path: if path.ends_with('/') {
-                    format!("{}{}", path, e.name)
-                } else {
-                    format!("{}/{}", path, e.name)
-                },
-                is_directory: e.is_directory,
-                size: e.size,
-                mtime: e.mtime,
-                permissions: e.permissions,
-            })
-            .collect();
-
-        Ok(file_entries)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    Ok(file_entries)
 }
 
 /// Read a file's contents
@@ -75,24 +68,18 @@ pub async fn sftp_read_file(
     conn_id: String,
     path: String,
 ) -> Result<String, String> {
-    let state = state.inner().clone();
+    let mut app_state = state.lock().await;
 
-    runtime::spawn(async move {
-        let mut app_state = state.lock().await;
+    let connection = app_state
+        .get_connection_mut(&conn_id)
+        .ok_or("Connection not found")?;
 
-        let connection = app_state
-            .get_connection_mut(&conn_id)
-            .ok_or("Connection not found")?;
+    let content = connection
+        .read_file(&path)
+        .await
+        .map_err(|e| format!("SFTP read file failed for '{}': {}", path, e))?;
 
-        let content = connection
-            .read_file(&path)
-            .await
-            .map_err(|e| format!("SFTP read file failed for '{}': {}", path, e))?;
-
-        Ok(content)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    Ok(content)
 }
 
 /// Write content to a file
@@ -103,34 +90,28 @@ pub async fn sftp_write_file(
     path: String,
     content: String,
 ) -> Result<FileMeta, String> {
-    let state = state.inner().clone();
+    let mut app_state = state.lock().await;
 
-    runtime::spawn(async move {
-        let mut app_state = state.lock().await;
+    let connection = app_state
+        .get_connection_mut(&conn_id)
+        .ok_or("Connection not found")?;
 
-        let connection = app_state
-            .get_connection_mut(&conn_id)
-            .ok_or("Connection not found")?;
+    connection
+        .write_file(&path, &content)
+        .await
+        .map_err(|e| format!("SFTP write file failed for '{}': {}", path, e))?;
 
-        connection
-            .write_file(&path, &content)
-            .await
-            .map_err(|e| format!("SFTP write file failed for '{}': {}", path, e))?;
+    // Get updated file metadata
+    let stat = connection
+        .stat(&path)
+        .await
+        .map_err(|e| format!("SFTP stat failed for '{}': {}", path, e))?;
 
-        // Get updated file metadata
-        let stat = connection
-            .stat(&path)
-            .await
-            .map_err(|e| format!("SFTP stat failed for '{}': {}", path, e))?;
-
-        Ok(FileMeta {
-            path,
-            size: stat.size,
-            mtime: stat.mtime,
-        })
+    Ok(FileMeta {
+        path,
+        size: stat.size,
+        mtime: stat.mtime,
     })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Get file metadata
@@ -140,28 +121,22 @@ pub async fn sftp_stat(
     conn_id: String,
     path: String,
 ) -> Result<FileMeta, String> {
-    let state = state.inner().clone();
+    let mut app_state = state.lock().await;
 
-    runtime::spawn(async move {
-        let mut app_state = state.lock().await;
+    let connection = app_state
+        .get_connection_mut(&conn_id)
+        .ok_or("Connection not found")?;
 
-        let connection = app_state
-            .get_connection_mut(&conn_id)
-            .ok_or("Connection not found")?;
+    let stat = connection
+        .stat(&path)
+        .await
+        .map_err(|e| format!("SFTP stat failed for '{}': {}", path, e))?;
 
-        let stat = connection
-            .stat(&path)
-            .await
-            .map_err(|e| format!("SFTP stat failed for '{}': {}", path, e))?;
-
-        Ok(FileMeta {
-            path,
-            size: stat.size,
-            mtime: stat.mtime,
-        })
+    Ok(FileMeta {
+        path,
+        size: stat.size,
+        mtime: stat.mtime,
     })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Create a new empty file
@@ -171,24 +146,18 @@ pub async fn sftp_create_file(
     conn_id: String,
     path: String,
 ) -> Result<(), String> {
-    let state = state.inner().clone();
+    let mut app_state = state.lock().await;
 
-    runtime::spawn(async move {
-        let mut app_state = state.lock().await;
+    let connection = app_state
+        .get_connection_mut(&conn_id)
+        .ok_or("Connection not found")?;
 
-        let connection = app_state
-            .get_connection_mut(&conn_id)
-            .ok_or("Connection not found")?;
+    connection
+        .create_file(&path)
+        .await
+        .map_err(|e| format!("SFTP create file failed for '{}': {}", path, e))?;
 
-        connection
-            .create_file(&path)
-            .await
-            .map_err(|e| format!("SFTP create file failed for '{}': {}", path, e))?;
-
-        Ok(())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    Ok(())
 }
 
 /// Create a new directory
@@ -198,24 +167,18 @@ pub async fn sftp_create_dir(
     conn_id: String,
     path: String,
 ) -> Result<(), String> {
-    let state = state.inner().clone();
+    let mut app_state = state.lock().await;
 
-    runtime::spawn(async move {
-        let mut app_state = state.lock().await;
+    let connection = app_state
+        .get_connection_mut(&conn_id)
+        .ok_or("Connection not found")?;
 
-        let connection = app_state
-            .get_connection_mut(&conn_id)
-            .ok_or("Connection not found")?;
+    connection
+        .create_dir(&path)
+        .await
+        .map_err(|e| format!("SFTP create directory failed for '{}': {}", path, e))?;
 
-        connection
-            .create_dir(&path)
-            .await
-            .map_err(|e| format!("SFTP create directory failed for '{}': {}", path, e))?;
-
-        Ok(())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    Ok(())
 }
 
 /// Delete a file or directory
@@ -225,24 +188,18 @@ pub async fn sftp_delete(
     conn_id: String,
     path: String,
 ) -> Result<(), String> {
-    let state = state.inner().clone();
+    let mut app_state = state.lock().await;
 
-    runtime::spawn(async move {
-        let mut app_state = state.lock().await;
+    let connection = app_state
+        .get_connection_mut(&conn_id)
+        .ok_or("Connection not found")?;
 
-        let connection = app_state
-            .get_connection_mut(&conn_id)
-            .ok_or("Connection not found")?;
+    connection
+        .delete(&path)
+        .await
+        .map_err(|e| format!("SFTP delete failed for '{}': {}", path, e))?;
 
-        connection
-            .delete(&path)
-            .await
-            .map_err(|e| format!("SFTP delete failed for '{}': {}", path, e))?;
-
-        Ok(())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    Ok(())
 }
 
 /// Rename/move a file or directory
@@ -253,22 +210,16 @@ pub async fn sftp_rename(
     old_path: String,
     new_path: String,
 ) -> Result<(), String> {
-    let state = state.inner().clone();
+    let mut app_state = state.lock().await;
 
-    runtime::spawn(async move {
-        let mut app_state = state.lock().await;
+    let connection = app_state
+        .get_connection_mut(&conn_id)
+        .ok_or("Connection not found")?;
 
-        let connection = app_state
-            .get_connection_mut(&conn_id)
-            .ok_or("Connection not found")?;
+    connection
+        .rename(&old_path, &new_path)
+        .await
+        .map_err(|e| format!("SFTP rename failed ('{}' -> '{}'): {}", old_path, new_path, e))?;
 
-        connection
-            .rename(&old_path, &new_path)
-            .await
-            .map_err(|e| format!("SFTP rename failed ('{}' -> '{}'): {}", old_path, new_path, e))?;
-
-        Ok(())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    Ok(())
 }
