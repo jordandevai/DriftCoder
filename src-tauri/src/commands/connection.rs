@@ -241,6 +241,9 @@ pub async fn ssh_test_connection(
             }
 
             let _ = conn.disconnect().await;
+            // Grace period for TCP socket release - prevents "handshake aborted" when
+            // connect is called immediately after test on LAN/WiFi networks.
+            tokio::time::sleep(Duration::from_millis(150)).await;
             Ok(true)
         }
         Err(e) => Err(map_connect_error(&profile, e)),
