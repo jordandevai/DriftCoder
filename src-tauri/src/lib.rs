@@ -60,12 +60,6 @@ pub fn run() {
                         emit_trace(app, TraceEvent::new("app", "resumed", "App resumed from background (mobile)"));
                         log::info!("[LIFECYCLE] App resumed");
                     }
-                    #[cfg(target_os = "android")]
-                    RunEvent::Suspended => {
-                        // Android: App going to background - connections may be killed!
-                        emit_trace(app, TraceEvent::new("app", "suspended", "App suspended to background - connections may be killed!").error());
-                        log::warn!("[LIFECYCLE] App suspended - Android may kill connections");
-                    }
                     RunEvent::ExitRequested { api, .. } => {
                         emit_trace(app, TraceEvent::new("app", "exit_requested", "Exit requested"));
                         log::info!("[LIFECYCLE] Exit requested");
@@ -75,7 +69,10 @@ pub fn run() {
                         emit_trace(app, TraceEvent::new("app", "exit", "Application exiting"));
                         log::info!("[LIFECYCLE] App exiting");
                     }
-                    _ => {}
+                    _ => {
+                        // Log any other events for debugging (includes platform-specific events)
+                        log::debug!("[LIFECYCLE] Other event: {:?}", event);
+                    }
                 }
             }
         });
