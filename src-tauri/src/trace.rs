@@ -14,12 +14,22 @@ static TRACE_ENABLED: OnceLock<bool> = OnceLock::new();
 /// Atomic flag that can be toggled at runtime via command
 static TRACE_RUNTIME_ENABLED: AtomicBool = AtomicBool::new(false);
 
-/// Check if tracing is enabled (env var or runtime toggle)
+/// Check if tracing is enabled (env var, debug build, or runtime toggle)
 pub fn is_trace_enabled() -> bool {
     let env_enabled = *TRACE_ENABLED.get_or_init(|| {
-        std::env::var("DRIFTCODE_DEBUG_TRACE")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
-            .unwrap_or(false)
+        // Check env var first
+        if let Ok(v) = std::env::var("DRIFTCODE_DEBUG_TRACE") {
+            return v == "1" || v.to_lowercase() == "true";
+        }
+        // Auto-enable for debug builds (useful for Android debug APKs)
+        #[cfg(debug_assertions)]
+        {
+            return true;
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            return false;
+        }
     });
     env_enabled || TRACE_RUNTIME_ENABLED.load(Ordering::Relaxed)
 }
