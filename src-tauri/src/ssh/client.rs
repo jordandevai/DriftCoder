@@ -121,11 +121,21 @@ impl SshConnection {
         channel
             .request_subsystem(true, "sftp")
             .await
-            .map_err(|e| SshError::SftpError(e.to_string()))?;
+            .map_err(|e| {
+                SshError::SftpError(format!(
+                    "Failed to start SFTP subsystem. Ensure the SSH server enables SFTP (OpenSSH: `Subsystem sftp ...`). Underlying error: {}",
+                    e
+                ))
+            })?;
 
         let sftp = SftpSession::new(channel.into_stream())
             .await
-            .map_err(|e| SshError::SftpError(e.to_string()))?;
+            .map_err(|e| {
+                SshError::SftpError(format!(
+                    "Failed to initialize SFTP session. Underlying error: {}",
+                    e
+                ))
+            })?;
 
         let sftp = Arc::new(Mutex::new(sftp));
         self.sftp = Some(sftp.clone());

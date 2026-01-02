@@ -57,23 +57,36 @@
 			const home = await invoke<string>('ssh_get_home_dir', { connId: connectionId });
 			homePath = home;
 			currentPath = home;
-			loadDirectory(home);
-		} catch {
-			currentPath = '/home';
-			loadDirectory('/home');
+			await loadDirectory(home);
+		} catch (e) {
+			error =
+				`Could not determine home directory. ` +
+				`Enter an absolute path (e.g. / or /home/<user>) and try again. ` +
+				`Details: ${e instanceof Error ? e.message : String(e)}`;
+			currentPath = '/';
+			await loadDirectory('/', { keepError: true });
 		}
 	}
 
-	async function loadDirectory(path: string) {
+	async function loadDirectory(path: string, options?: { keepError?: boolean }) {
 		loading = true;
-		error = null;
+		if (!options?.keepError) error = null;
 
 		try {
-			entries = await invoke<FileEntry[]>('sftp_list_dir', { connId: connectionId, path });
+			const resolvedPath =
+				path === '~'
+					? homePath || '/'
+					: homePath && path.startsWith('~/')
+						? homePath + path.slice(1)
+						: path;
+			entries = await invoke<FileEntry[]>('sftp_list_dir', {
+				connId: connectionId,
+				path: resolvedPath
+			});
 			entries = entries.filter((e) => e.isDirectory).sort((a, b) => a.name.localeCompare(b.name));
-			currentPath = path;
+			currentPath = resolvedPath;
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load directory';
+			error = e instanceof Error ? e.message : String(e);
 		} finally {
 			loading = false;
 		}
@@ -138,7 +151,7 @@
 			<div class="space-y-0.5">
 				<button
 					class="w-full flex items-center gap-2 px-2 py-1 text-sm rounded hover:bg-sidebar-hover transition-colors text-left"
-					onclick={() => loadDirectory(homePath || '~')}
+					onclick={() => loadDirectory(homePath || currentPath || '/')}
 				>
 					<svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"

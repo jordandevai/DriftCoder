@@ -64,7 +64,7 @@ pub async fn ssh_connect(
         _ => return Err("Invalid authentication method".to_string()),
     };
 
-    let connection = SshConnection::connect(
+    let mut connection = SshConnection::connect(
         &profile.host,
         profile.port,
         &profile.username,
@@ -72,6 +72,16 @@ pub async fn ssh_connect(
     )
     .await
     .map_err(|e| e.to_string())?;
+
+    // DriftCode requires SFTP for file browsing/editing; fail fast with a clear message
+    // if the server does not support the SFTP subsystem.
+    if let Err(e) = connection.get_home_dir().await {
+        let _ = connection.disconnect().await;
+        return Err(format!(
+            "Connected, but SFTP is unavailable on this server. Enable the SSH SFTP subsystem and try again. Details: {}",
+            e
+        ));
+    }
 
     let connection_id = Uuid::new_v4().to_string();
 
@@ -139,6 +149,14 @@ pub async fn ssh_test_connection(
 
     match SshConnection::connect(&profile.host, profile.port, &profile.username, auth).await {
         Ok(mut conn) => {
+            if let Err(e) = conn.get_home_dir().await {
+                let _ = conn.disconnect().await;
+                return Err(format!(
+                    "SFTP is unavailable on this server. Enable the SSH SFTP subsystem and try again. Details: {}",
+                    e
+                ));
+            }
+
             let _ = conn.disconnect().await;
             Ok(true)
         }
