@@ -33,29 +33,29 @@
 	const darkTheme = EditorView.theme({
 		'&': {
 			height: '100%',
-			backgroundColor: '#1e1e1e',
-			color: '#d4d4d4'
+			backgroundColor: 'rgb(var(--c-editor-bg))',
+			color: 'rgb(var(--c-editor-fg))'
 		},
 		'.cm-content': {
 			fontFamily: 'var(--font-mono)',
-			caretColor: '#aeafad'
+			caretColor: 'rgb(var(--c-editor-cursor))'
 		},
 		'.cm-cursor': {
-			borderLeftColor: '#aeafad'
+			borderLeftColor: 'rgb(var(--c-editor-cursor))'
 		},
 		'&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
-			backgroundColor: '#264f78'
+			backgroundColor: 'rgb(var(--c-editor-selection))'
 		},
 		'.cm-gutters': {
-			backgroundColor: '#1e1e1e',
+			backgroundColor: 'rgb(var(--c-editor-bg))',
 			color: '#858585',
 			border: 'none'
 		},
 		'.cm-activeLineGutter': {
-			backgroundColor: '#2d2d2d'
+			backgroundColor: 'rgb(var(--c-editor-line))'
 		},
 		'.cm-activeLine': {
-			backgroundColor: '#2d2d2d'
+			backgroundColor: 'rgb(var(--c-editor-line))'
 		},
 		'.cm-line': {
 			padding: '0 8px'

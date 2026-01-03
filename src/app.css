@@ -6,6 +6,112 @@
 	:root {
 		--font-mono: 'JetBrains Mono', 'Fira Code', Consolas, Monaco, monospace;
 		--font-sans: 'Inter', system-ui, sans-serif;
+
+		/* Theme colors (default = dark). Stored as "r g b" triplets for Tailwind rgb(var(--c-...)). */
+		--c-editor-bg: 30 30 30;
+		--c-editor-fg: 212 212 212;
+		--c-editor-line: 45 45 45;
+		--c-editor-selection: 38 79 120;
+		--c-editor-cursor: 174 175 173;
+
+		--c-panel-bg: 37 37 38;
+		--c-panel-border: 60 60 60;
+		--c-panel-active: 55 55 61;
+
+		--c-sidebar-bg: 37 37 38;
+		--c-sidebar-hover: 42 45 46;
+		--c-sidebar-active: 55 55 61;
+
+		--c-tab-bg: 45 45 45;
+		--c-tab-active: 30 30 30;
+		--c-tab-border: 37 37 38;
+
+		--c-status-bg: 0 122 204;
+		--c-status-fg: 255 255 255;
+
+		--c-accent: 0 122 204;
+		--c-accent-hover: 0 152 255;
+		--c-success: 76 175 80;
+		--c-warning: 255 152 0;
+		--c-error: 244 67 54;
+
+		/* Terminal theme (default = dark). */
+		--c-terminal-background: 15 23 42;
+		--c-terminal-foreground: 229 231 235;
+		--c-terminal-cursor: 248 250 252;
+		--c-terminal-cursor-accent: 15 23 42;
+		--c-terminal-selection-background: 51 65 85;
+		--c-terminal-black: 15 23 42;
+		--c-terminal-red: 239 68 68;
+		--c-terminal-green: 34 197 94;
+		--c-terminal-yellow: 234 179 8;
+		--c-terminal-blue: 96 165 250;
+		--c-terminal-magenta: 167 139 250;
+		--c-terminal-cyan: 34 211 238;
+		--c-terminal-white: 156 163 175;
+		--c-terminal-bright-black: 71 85 105;
+		--c-terminal-bright-red: 248 113 113;
+		--c-terminal-bright-green: 74 222 128;
+		--c-terminal-bright-yellow: 253 224 71;
+		--c-terminal-bright-blue: 147 197 253;
+		--c-terminal-bright-magenta: 196 181 253;
+		--c-terminal-bright-cyan: 103 232 249;
+		--c-terminal-bright-white: 229 231 235;
+		--terminal-min-contrast: 4.5;
+	}
+
+	/* Light theme overrides */
+	html[data-theme='light'] {
+		--c-editor-bg: 248 250 252;
+		--c-editor-fg: 17 24 39;
+		--c-editor-line: 229 231 235;
+		--c-editor-selection: 191 219 254;
+		--c-editor-cursor: 17 24 39;
+
+		--c-panel-bg: 255 255 255;
+		--c-panel-border: 229 231 235;
+		--c-panel-active: 243 244 246;
+
+		--c-sidebar-bg: 255 255 255;
+		--c-sidebar-hover: 243 244 246;
+		--c-sidebar-active: 229 231 235;
+
+		--c-tab-bg: 243 244 246;
+		--c-tab-active: 255 255 255;
+		--c-tab-border: 229 231 235;
+
+		--c-status-bg: 37 99 235;
+		--c-status-fg: 255 255 255;
+
+		--c-accent: 37 99 235;
+		--c-accent-hover: 29 78 216;
+		--c-success: 22 163 74;
+		--c-warning: 217 119 6;
+		--c-error: 220 38 38;
+
+		/* Terminal theme (light). */
+		--c-terminal-background: 255 255 255;
+		--c-terminal-foreground: 17 24 39;
+		--c-terminal-cursor: 17 24 39;
+		--c-terminal-cursor-accent: 255 255 255;
+		--c-terminal-selection-background: 191 219 254;
+		--c-terminal-black: 11 18 32;
+		--c-terminal-red: 220 38 38;
+		--c-terminal-green: 22 163 74;
+		--c-terminal-yellow: 217 119 6;
+		--c-terminal-blue: 37 99 235;
+		--c-terminal-magenta: 124 58 237;
+		--c-terminal-cyan: 8 145 178;
+		--c-terminal-white: 209 213 219;
+		--c-terminal-bright-black: 107 114 128;
+		--c-terminal-bright-red: 239 68 68;
+		--c-terminal-bright-green: 34 197 94;
+		--c-terminal-bright-yellow: 245 158 11;
+		--c-terminal-bright-blue: 59 130 246;
+		--c-terminal-bright-magenta: 167 139 250;
+		--c-terminal-bright-cyan: 34 211 238;
+		--c-terminal-bright-white: 243 244 246;
+		--terminal-min-contrast: 4.5;
 	}
 
 	html,
@@ -16,9 +122,12 @@
 		padding-right: env(safe-area-inset-right, 0px);
 	}
 
-	/* Hint to the UA/IME that the app is dark-themed (improves Android WebView input theming). */
+	/* Hint to the UA/IME about expected form-control colors. */
 	html {
 		color-scheme: dark;
+	}
+	html[data-theme='light'] {
+		color-scheme: light;
 	}
 
 	* {

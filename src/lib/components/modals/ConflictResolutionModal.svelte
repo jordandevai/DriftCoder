@@ -31,15 +31,16 @@
 	const mergeTheme = EditorView.theme({
 		'&': {
 			height: '100%',
-			backgroundColor: '#1e1e1e',
-			color: '#d4d4d4'
+			backgroundColor: 'rgb(var(--c-editor-bg))',
+			color: 'rgb(var(--c-editor-fg))'
 		},
 		'.cm-content': {
-			fontFamily: 'var(--font-mono)'
+			fontFamily: 'var(--font-mono)',
+			caretColor: 'rgb(var(--c-editor-cursor))'
 		},
 		'.cm-gutters': {
-			backgroundColor: '#1e1e1e',
-			color: '#858585',
+			backgroundColor: 'rgb(var(--c-editor-bg))',
+			color: 'rgb(var(--c-editor-fg) / 0.6)',
 			border: 'none'
 		}
 	});

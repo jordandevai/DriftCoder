@@ -105,6 +105,19 @@ export interface SettingsState {
 	autosave: boolean;
 	autosaveDelay: number;
 	terminalScrollback: number;
+	themeMode: 'dark' | 'light' | 'system';
+	themeOverrides: {
+		dark?: {
+			ui?: Partial<Record<string, string>>;
+			terminal?: Partial<Record<string, string>>;
+			terminalMinimumContrastRatio?: number;
+		};
+		light?: {
+			ui?: Partial<Record<string, string>>;
+			terminal?: Partial<Record<string, string>>;
+			terminalMinimumContrastRatio?: number;
+		};
+	};
 }
 
 // Terminal types

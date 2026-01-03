@@ -4,6 +4,8 @@
 
 DriftCode is a lightweight, cross-platform code editor that lets you securely edit code on your own machines over standard SSH. No server components, no cloud lock-in — just your environment, remotely.
 
+Work from anywhere with any device and harness the full potential of your powerful home computer with your tablet, phone, mobile device.
+
 Created by Jordan Gonzales (Jtech Minds LLC)  
 https://jtechminds.com • https://driftcoder.com
 

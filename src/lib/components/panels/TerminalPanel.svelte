@@ -3,6 +3,7 @@
 	import { invoke, listen } from '$utils/tauri';
 	import { notificationsStore } from '$stores/notifications';
 	import { settingsStore } from '$stores/settings';
+	import { TERMINAL_THEME_KEYS, toKebabCase } from '$utils/theme';
 
 	import type { Terminal as TerminalType } from 'xterm';
 	import type { FitAddon as FitAddonType } from '@xterm/addon-fit';
@@ -20,10 +21,13 @@
 	let fitAddon: FitAddonType | null = null;
 	let unlisten: (() => void) | null = null;
 	let resizeObserver: ResizeObserver | null = null;
+	let themeObserver: MutationObserver | null = null;
 	let writeErrorNotified = false;
 	let resizeErrorNotified = false;
 	let disconnected = $state(false);
 	const scrollback = $derived($settingsStore.terminalScrollback ?? 50_000);
+	const themeMode = $derived($settingsStore.themeMode);
+	const themeOverrides = $derived($settingsStore.themeOverrides);
 
 	$effect(() => {
 		if (connectionDisconnected) disconnected = true;
@@ -33,6 +37,57 @@
 		if (!terminal) return;
 		terminal.options.scrollback = scrollback;
 	});
+
+	function readRootCssVar(name: string): string {
+		if (typeof window === 'undefined') return '';
+		return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+	}
+
+	function tripletToRgbCss(triplet: string): string | null {
+		const parts = triplet
+			.trim()
+			.split(/\s+/)
+			.map((p) => Number.parseInt(p, 10))
+			.filter((n) => Number.isFinite(n));
+		if (parts.length !== 3) return null;
+		const [r, g, b] = parts.map((n) => Math.max(0, Math.min(255, n)));
+		return `rgb(${r}, ${g}, ${b})`;
+	}
+
+	function getTerminalThemeFromCss(): Record<string, string> {
+		const theme: Record<string, string> = {};
+		for (const key of TERMINAL_THEME_KEYS) {
+			const triplet = readRootCssVar(`--c-terminal-${toKebabCase(key)}`);
+			const rgb = tripletToRgbCss(triplet);
+			if (rgb) theme[key] = rgb;
+		}
+		return theme;
+	}
+
+	function getTerminalMinimumContrastRatioFromCss(): number {
+		const raw = readRootCssVar('--terminal-min-contrast');
+		const n = Number.parseFloat(raw);
+		if (!Number.isFinite(n)) return 4.5;
+		return Math.max(1, Math.min(21, n));
+	}
+
+	function applyTerminalThemeFromCss(): void {
+		if (!terminal) return;
+		terminal.options.theme = getTerminalThemeFromCss();
+		terminal.options.minimumContrastRatio = getTerminalMinimumContrastRatioFromCss();
+		if (terminal.rows > 0) terminal.refresh(0, terminal.rows - 1);
+	}
+
+	function startThemeObserver(): void {
+		if (typeof window === 'undefined') return;
+		if (typeof MutationObserver === 'undefined') return;
+		if (themeObserver) return;
+		themeObserver = new MutationObserver(() => applyTerminalThemeFromCss());
+		themeObserver.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ['data-theme', 'style']
+		});
+	}
 
 	function getDefaultFontSize(): number {
 		if (typeof window === 'undefined') return 14;
@@ -51,41 +106,14 @@
 		]);
 		await import('xterm/css/xterm.css');
 
-		const theme = {
-			background: '#0f172a', // slate-900-ish (darker + consistent on mobile)
-			foreground: '#e5e7eb', // gray-200 for high contrast
-			cursor: '#f8fafc',
-			cursorAccent: '#0f172a',
-			selectionBackground: '#334155', // slate-700
-			black: '#0f172a',
-			red: '#ef4444',
-			green: '#22c55e',
-			yellow: '#eab308',
-			blue: '#60a5fa',
-			magenta: '#a78bfa',
-			cyan: '#22d3ee',
-			// ANSI "white" is often used for backgrounds in prompts/themes; keep it gray, not near-white.
-			white: '#9ca3af',
-			brightBlack: '#475569',
-			brightRed: '#f87171',
-			brightGreen: '#4ade80',
-			brightYellow: '#fde047',
-			brightBlue: '#93c5fd',
-			brightMagenta: '#c4b5fd',
-			brightCyan: '#67e8f9',
-			brightWhite: '#e5e7eb'
-		} as const;
-
 		terminal = new Terminal({
 			cursorBlink: true,
 			fontFamily: 'JetBrains Mono, Fira Code, Consolas, monospace',
 			fontSize: getDefaultFontSize(),
 			lineHeight: 1.15,
 			scrollback,
-			// Improves readability when apps (tmux/themes) set low-contrast fg/bg combinations.
-			// 4.5 is the common accessibility target for small text.
-			minimumContrastRatio: 4.5,
-			theme
+			minimumContrastRatio: getTerminalMinimumContrastRatioFromCss(),
+			theme: getTerminalThemeFromCss()
 		});
 
 		fitAddon = new FitAddon();
@@ -153,15 +181,17 @@
 			}
 		});
 		resizeObserver.observe(terminalContainer);
+
+		startThemeObserver();
 	}
 
 	onMount(() => {
 		initTerminal();
 	});
 
-		$effect(() => {
-			if (!active) return;
-			if (!terminal) return;
+	$effect(() => {
+		if (!active) return;
+		if (!terminal) return;
 
 		// When a terminal panel becomes visible again, refit and focus so input works immediately.
 		queueMicrotask(() => {
@@ -174,6 +204,13 @@
 		});
 	});
 
+	$effect(() => {
+		// Re-apply terminal palette/contrast whenever the user edits theme settings.
+		themeMode;
+		themeOverrides;
+		applyTerminalThemeFromCss();
+	});
+
 	onDestroy(() => {
 		if (unlisten) {
 			unlisten();
@@ -181,13 +218,16 @@
 		if (resizeObserver) {
 			resizeObserver.disconnect();
 		}
+		if (themeObserver) {
+			themeObserver.disconnect();
+		}
 		if (terminal) {
 			terminal.dispose();
 		}
 	});
 </script>
 
-<div class="h-full w-full bg-editor-bg p-1">
+<div class="h-full w-full p-1" style="background-color: rgb(var(--c-terminal-background));">
 	<div class="relative h-full w-full">
 		<div bind:this={terminalContainer} class="h-full w-full"></div>
 		{#if disconnected}
@@ -215,7 +255,7 @@
 	:global(.xterm),
 	:global(.xterm-viewport),
 	:global(.xterm-screen) {
-		background-color: #0f172a !important;
+		background-color: rgb(var(--c-terminal-background)) !important;
 	}
 
 	/*
