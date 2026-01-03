@@ -16,6 +16,11 @@
 		padding-right: env(safe-area-inset-right, 0px);
 	}
 
+	/* Hint to the UA/IME that the app is dark-themed (improves Android WebView input theming). */
+	html {
+		color-scheme: dark;
+	}
+
 	* {
 		@apply box-border;
 	}

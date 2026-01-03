@@ -64,7 +64,8 @@
 			blue: '#60a5fa',
 			magenta: '#a78bfa',
 			cyan: '#22d3ee',
-			white: '#e5e7eb',
+			// ANSI "white" is often used for backgrounds in prompts/themes; keep it gray, not near-white.
+			white: '#9ca3af',
 			brightBlack: '#475569',
 			brightRed: '#f87171',
 			brightGreen: '#4ade80',
@@ -72,7 +73,7 @@
 			brightBlue: '#93c5fd',
 			brightMagenta: '#c4b5fd',
 			brightCyan: '#67e8f9',
-			brightWhite: '#f9fafb'
+			brightWhite: '#e5e7eb'
 		} as const;
 
 		terminal = new Terminal({
@@ -81,6 +82,9 @@
 			fontSize: getDefaultFontSize(),
 			lineHeight: 1.15,
 			scrollback,
+			// Improves readability when apps (tmux/themes) set low-contrast fg/bg combinations.
+			// 4.5 is the common accessibility target for small text.
+			minimumContrastRatio: 4.5,
 			theme
 		});
 
