@@ -8,6 +8,8 @@ export interface PromptRequest {
 	initialValue?: string;
 	confirmText?: string;
 	cancelText?: string;
+	inputType?: 'text' | 'password';
+	trim?: boolean;
 }
 
 interface PromptState {
@@ -56,4 +58,3 @@ function createPromptStore() {
 }
 
 export const promptStore = createPromptStore();
-

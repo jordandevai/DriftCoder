@@ -19,6 +19,7 @@
 	const group = $derived($layoutStore.groups.get(groupId));
 	const activePanelId = $derived(group?.activePanelId);
 	const currentSessionId = $derived($activeSession?.id);
+	const currentSessionDisconnected = $derived($activeSession?.connectionStatus === 'disconnected');
 
 	// Collect ALL terminal panels from ALL sessions for persistence
 	interface SessionPanel extends Panel {
@@ -134,7 +135,11 @@
 		<!-- Terminal panels: keep ALL sessions mounted for persistence -->
 		{#each allTerminalPanels as panel (`${panel.sessionId}-${panel.id}`)}
 			<div class="absolute inset-0 {isVisibleTerminalPanel(panel) ? '' : 'invisible pointer-events-none'}">
-				<TerminalPanel terminalId={panel.terminalId || ''} active={isVisibleTerminalPanel(panel)} />
+				<TerminalPanel
+					terminalId={panel.terminalId || ''}
+					active={isVisibleTerminalPanel(panel)}
+					connectionDisconnected={isVisibleTerminalPanel(panel) && currentSessionDisconnected}
+				/>
 			</div>
 		{/each}
 	</div>

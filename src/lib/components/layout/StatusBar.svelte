@@ -18,8 +18,18 @@
 	let cursorColumn = $state(1);
 
 	const isConnecting = $derived($connectionStore.status === 'connecting');
+	const isDisconnected = $derived($activeSession?.connectionStatus === 'disconnected');
 
 	async function handleNewTerminal() {
+		if (isDisconnected) {
+			try {
+				await connectionStore.reconnect($activeSession!.connectionId);
+			} catch {
+				// reconnect flow handles its own user prompts/notifications
+				return;
+			}
+		}
+
 		try {
 			await terminalStore.createTerminal();
 		} catch (error) {
@@ -40,10 +50,25 @@
 		<div
 			class="flex items-center gap-1.5 px-2 py-0.5"
 		>
-			<span class="w-2 h-2 rounded-full bg-success"></span>
+			<span class="w-2 h-2 rounded-full {isDisconnected ? 'bg-error' : 'bg-success'}"></span>
 			<span>
 				{$activeSession.connectionProfile.username}@{$activeSession.connectionProfile.host}
 			</span>
+			{#if isDisconnected}
+				<button
+					class="ml-2 px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 transition-colors"
+					onclick={async () => {
+						try {
+							await connectionStore.reconnect($activeSession.connectionId);
+						} catch {
+							// reconnect flow handles prompts/errors
+						}
+					}}
+					title="Reconnect"
+				>
+					Reconnect
+				</button>
+			{/if}
 		</div>
 
 		<!-- Project Root -->

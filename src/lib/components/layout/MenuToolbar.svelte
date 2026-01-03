@@ -2,6 +2,7 @@
 	import { workspaceStore } from '$stores/workspace';
 	import Modal from '$components/shared/Modal.svelte';
 	import Button from '$components/shared/Button.svelte';
+	import { settingsUiStore } from '$stores/settings-ui';
 	import {
 		closeActiveProject,
 		closeActiveTerminalPanel,
@@ -67,7 +68,9 @@
 			label: 'View',
 			items: [
 				{ label: 'Toggle File Tree', action: 'toggleFileTree', shortcut: 'Ctrl+B' },
-				{ label: 'Toggle Menu Bar', action: 'toggleMenu' }
+				{ label: 'Toggle Menu Bar', action: 'toggleMenu' },
+				{ type: 'separator', label: '' },
+				{ label: 'Settings...', action: 'settings' }
 			]
 		},
 		{
@@ -132,6 +135,9 @@
 				break;
 			case 'about':
 				aboutOpen = true;
+				break;
+			case 'settings':
+				settingsUiStore.open();
 				break;
 		}
 	}

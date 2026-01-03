@@ -8,5 +8,6 @@ export { layoutStore, activeGroup, activePanel, allPanels } from './layout';
 export { notificationsStore, unreadCount, activePopups, selectedNotification } from './notifications';
 export { promptStore } from './prompt';
 export { settingsStore } from './settings';
+export { settingsUiStore } from './settings-ui';
 export { terminalStore, activeSessionTerminals, allTerminals } from './terminal';
 export { workspaceStore, activeSession, orderedSessions, hasSessions } from './workspace';

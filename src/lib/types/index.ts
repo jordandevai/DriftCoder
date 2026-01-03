@@ -104,6 +104,7 @@ export interface SettingsState {
 	wordWrap: boolean;
 	autosave: boolean;
 	autosaveDelay: number;
+	terminalScrollback: number;
 }
 
 // Terminal types
@@ -133,6 +134,8 @@ export interface Session {
 	id: string;
 	connectionId: string;
 	connectionProfile: ConnectionProfile;
+	connectionStatus?: 'connected' | 'disconnected';
+	connectionDetail?: string | null;
 	projectRoot: string;
 	displayName: string; // e.g., "server:folder"
 	fileState: SessionFileState;
@@ -150,6 +153,8 @@ export interface ActiveConnection {
 	id: string;
 	profile: ConnectionProfile;
 	sessionCount: number; // Number of sessions using this connection
+	status?: 'connected' | 'disconnected' | 'reconnecting';
+	lastDisconnectDetail?: string | null;
 }
 
 export interface IpcError {

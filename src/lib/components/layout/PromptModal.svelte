@@ -5,6 +5,13 @@
 
 	const request = $derived($promptStore.active);
 	const value = $derived($promptStore.value);
+
+	function resolveValue() {
+		if (!request) return;
+		const shouldTrim = request.trim ?? true;
+		const next = shouldTrim ? value.trim() : value;
+		promptStore.resolve(next ? next : null);
+	}
 </script>
 
 <Modal open={!!request} title={request?.title} size="md" onclose={() => promptStore.close()}>
@@ -20,11 +27,12 @@
 			<!-- svelte-ignore a11y_autofocus -->
 			<input
 				class="input w-full"
+				type={request.inputType ?? 'text'}
 				placeholder={request.placeholder ?? ''}
 				value={value}
 				oninput={(e) => promptStore.setValue((e.currentTarget as HTMLInputElement).value)}
 				onkeydown={(e) => {
-					if (e.key === 'Enter') promptStore.resolve(value.trim() ? value.trim() : null);
+					if (e.key === 'Enter') resolveValue();
 					if (e.key === 'Escape') promptStore.close();
 				}}
 				autofocus
@@ -34,11 +42,10 @@
 				<Button variant="ghost" onclick={() => promptStore.close()}>
 					{request.cancelText ?? 'Cancel'}
 				</Button>
-				<Button onclick={() => promptStore.resolve(value.trim() ? value.trim() : null)}>
+				<Button onclick={() => resolveValue()}>
 					{request.confirmText ?? 'OK'}
 				</Button>
 			</div>
 		</div>
 	{/if}
 </Modal>
-

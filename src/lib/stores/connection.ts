@@ -5,6 +5,7 @@ import { loadSavedConnections, saveConnections } from '$utils/storage';
 import { notificationsStore } from './notifications';
 import { confirmStore } from './confirm';
 import { parseHostKeyContext } from '$utils/ssh-hostkey';
+import { promptStore } from './prompt';
 
 const initialState: ConnectionState = {
 	status: 'idle',
@@ -19,6 +20,157 @@ function createConnectionStore() {
 
 	return {
 		subscribe,
+
+		async reconnect(connectionId: string, password?: string): Promise<void> {
+			const state = get({ subscribe });
+			const active = state.activeConnections.get(connectionId);
+			if (!active) {
+				throw new Error('Connection not found');
+			}
+
+			update((s) => {
+				const next = new Map(s.activeConnections);
+				const conn = next.get(connectionId);
+				if (conn) next.set(connectionId, { ...conn, status: 'reconnecting' });
+				return { ...s, status: 'connecting', activeConnections: next, error: null };
+			});
+
+			const reconnectOnce = async (overridePassword?: string): Promise<void> =>
+				await invoke<void>('ssh_reconnect', {
+					connId: connectionId,
+					profile: active.profile,
+					password: overridePassword ?? password
+				});
+
+			try {
+				try {
+					await reconnectOnce();
+				} catch (error) {
+					if (error instanceof TauriCommandError && error.code === 'ssh_hostkey_untrusted') {
+						const ctx = parseHostKeyContext(error.context);
+						if (ctx && 'fingerprintSha256' in ctx) {
+							const confirmed = await confirmStore.confirm({
+								title: 'Trust Host Key?',
+								message:
+									`The SSH server ${ctx.host}:${ctx.port} is presenting an untrusted host key.\n\n` +
+									`Only trust this key if you are sure you’re connecting to the right machine.`,
+								detail: `${ctx.keyType} ${ctx.fingerprintSha256}\n\n${ctx.publicKeyOpenssh}`,
+								confirmText: 'Trust & Reconnect',
+								cancelText: 'Cancel'
+							});
+							if (confirmed) {
+								await invoke('ssh_trust_host_key', {
+									request: {
+										host: ctx.host,
+										port: ctx.port,
+										keyType: ctx.keyType,
+										fingerprintSha256: ctx.fingerprintSha256,
+										publicKeyOpenssh: ctx.publicKeyOpenssh
+									}
+								});
+								await reconnectOnce();
+							} else {
+								throw error;
+							}
+						} else {
+							throw error;
+						}
+					} else if (error instanceof TauriCommandError && error.code === 'ssh_hostkey_mismatch') {
+						const ctx = parseHostKeyContext(error.context);
+						if (ctx && 'expectedFingerprintSha256' in ctx) {
+							const confirmed = await confirmStore.confirm({
+								title: 'Host Key Changed',
+								message:
+									`WARNING: The host key for ${ctx.host}:${ctx.port} has changed.\n\n` +
+									`This can indicate a man-in-the-middle attack, or that the server was reinstalled.\n\n` +
+									`Replace the saved key only if you’re sure this is expected.`,
+								detail:
+									`Expected: ${ctx.expectedFingerprintSha256}\n` +
+									`Actual:   ${ctx.actualFingerprintSha256}\n\n` +
+									`New key:\n${ctx.actualPublicKeyOpenssh}`,
+								confirmText: 'Replace Key & Reconnect',
+								cancelText: 'Cancel',
+								destructive: true
+							});
+							if (confirmed) {
+								await invoke('ssh_forget_host_key', { host: ctx.host, port: ctx.port });
+								await invoke('ssh_trust_host_key', {
+									request: {
+										host: ctx.host,
+										port: ctx.port,
+										keyType: ctx.keyType,
+										fingerprintSha256: ctx.actualFingerprintSha256,
+										publicKeyOpenssh: ctx.actualPublicKeyOpenssh
+									}
+								});
+								await reconnectOnce();
+							} else {
+								throw error;
+							}
+						} else {
+							throw error;
+						}
+					} else if (
+						error instanceof TauriCommandError &&
+						(error.code === 'missing_password' || error.code === 'ssh_auth_failed')
+						) {
+							if (active.profile.authMethod === 'password') {
+								const entered = await promptStore.prompt({
+									title: 'Reconnect',
+									message: `Enter password for ${active.profile.username}@${active.profile.host}:${active.profile.port}`,
+									placeholder: 'Password',
+									confirmText: 'Reconnect',
+								cancelText: 'Cancel',
+								inputType: 'password',
+								trim: false
+							});
+							if (entered !== null) await reconnectOnce(entered);
+							else {
+								throw error;
+							}
+						} else {
+							throw error;
+						}
+					} else {
+						throw error;
+					}
+				}
+
+				update((s) => {
+					const next = new Map(s.activeConnections);
+					const conn = next.get(connectionId);
+					if (conn) {
+						next.set(connectionId, {
+							...conn,
+							status: 'connected',
+							lastDisconnectDetail: null
+						});
+					}
+					return { ...s, status: 'idle', activeConnections: next, error: null };
+				});
+
+				try {
+					const { workspaceStore } = await import('./workspace');
+					workspaceStore.markConnectionConnected(connectionId);
+				} catch (e) {
+					console.error('Failed to mark sessions connected:', e);
+				}
+			} catch (error) {
+				update((s) => {
+					const next = new Map(s.activeConnections);
+					const conn = next.get(connectionId);
+					if (conn) {
+						next.set(connectionId, {
+							...conn,
+							status: 'disconnected',
+							lastDisconnectDetail: error instanceof Error ? error.message : String(error)
+						});
+					}
+					return { ...s, status: 'idle', activeConnections: next, error: null };
+				});
+				throw error;
+			}
+		},
 
 		/**
 		 * Connect to a server. Returns the connection ID.
@@ -110,7 +262,9 @@ function createConnectionStore() {
 				const activeConn: ActiveConnection = {
 					id: connectionId,
 					profile,
-					sessionCount: 0 // Will be incremented by workspaceStore when creating session
+					sessionCount: 0, // Will be incremented by workspaceStore when creating session
+					status: 'connected',
+					lastDisconnectDetail: null
 				};
 
 				update((s) => {
@@ -193,7 +347,8 @@ function createConnectionStore() {
 		 * Check if a connection is active
 		 */
 		isConnectionActive(connectionId: string): boolean {
-			return get({ subscribe }).activeConnections.has(connectionId);
+			const conn = get({ subscribe }).activeConnections.get(connectionId);
+			return !!conn && (conn.status ?? 'connected') === 'connected';
 		},
 
 		/**
@@ -298,6 +453,28 @@ function createConnectionStore() {
 					status: 'connected' | 'disconnected';
 					detail?: string | null;
 				}>('connection_status_changed', async (payload) => {
+					if (payload.status === 'connected') {
+						update((s) => {
+							const next = new Map(s.activeConnections);
+							const active = next.get(payload.connectionId);
+							if (!active) return s;
+							next.set(payload.connectionId, {
+								...active,
+								status: 'connected',
+								lastDisconnectDetail: null
+							});
+							return { ...s, activeConnections: next };
+						});
+
+						try {
+							const { workspaceStore } = await import('./workspace');
+							workspaceStore.markConnectionConnected(payload.connectionId);
+						} catch (e) {
+							console.error('Failed to mark sessions connected:', e);
+						}
+						return;
+					}
+
 					if (payload.status !== 'disconnected') return;
 
 					const state = get({ subscribe });
@@ -306,12 +483,16 @@ function createConnectionStore() {
 
 					update((s) => {
 						const newConnections = new Map(s.activeConnections);
-						newConnections.delete(payload.connectionId);
+						newConnections.set(payload.connectionId, {
+							...active,
+							status: 'disconnected',
+							lastDisconnectDetail: payload.detail ?? null
+						});
 						return { ...s, activeConnections: newConnections };
 					});
 
 					notificationsStore.notifyOnce(`connection_lost:${payload.connectionId}`, {
-						severity: 'error',
+						severity: 'warning',
 						title: 'Connection Lost',
 						message: `Disconnected from ${active.profile.username}@${active.profile.host}:${active.profile.port}.`,
 						detail: payload.detail || 'Disconnected'
@@ -319,10 +500,7 @@ function createConnectionStore() {
 
 					try {
 						const { workspaceStore } = await import('./workspace');
-						await workspaceStore.dropSessionsForConnection(
-							payload.connectionId,
-							payload.detail || 'Connection lost'
-						);
+						workspaceStore.markConnectionDisconnected(payload.connectionId, payload.detail ?? null);
 					} catch (e) {
 						console.error('Failed to reconcile sessions after disconnect:', e);
 					}

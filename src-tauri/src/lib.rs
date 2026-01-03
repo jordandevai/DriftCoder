@@ -38,6 +38,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // Connection commands
             commands::connection::ssh_connect,
+            commands::connection::ssh_reconnect,
             commands::connection::ssh_disconnect,
             commands::connection::ssh_get_home_dir,
             commands::connection::ssh_test_connection,

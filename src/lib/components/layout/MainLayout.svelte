@@ -9,6 +9,7 @@
 	import StatusBar from './StatusBar.svelte';
 	import NotificationCenter from './NotificationCenter.svelte';
 	import DiagnosticsModal from './DiagnosticsModal.svelte';
+	import SettingsModal from './SettingsModal.svelte';
 	import ConfirmHost from './ConfirmHost.svelte';
 	import PromptModal from './PromptModal.svelte';
 	import ConflictResolutionModal from '$components/modals/ConflictResolutionModal.svelte';
@@ -231,6 +232,7 @@
 
 	<NotificationCenter />
 	<DiagnosticsModal />
+	<SettingsModal />
 	<ConfirmHost />
 	<PromptModal />
 	<ConflictResolutionModal />

@@ -95,6 +95,8 @@ function createWorkspaceStore() {
 				id: sessionId,
 				connectionId,
 				connectionProfile: profile,
+				connectionStatus: 'connected',
+				connectionDetail: null,
 				projectRoot,
 				displayName,
 				fileState: {
@@ -219,6 +221,46 @@ function createWorkspaceStore() {
 					detail: reason
 				});
 			}
+		},
+
+		/**
+		 * Mark all sessions for a connection as disconnected (preserves session UI state for recovery).
+		 */
+		markConnectionDisconnected(connectionId: string, detail?: string | null): void {
+			update((s) => {
+				let changed = false;
+				const nextSessions = new Map(s.sessions);
+				for (const [id, session] of nextSessions) {
+					if (session.connectionId !== connectionId) continue;
+					if (session.connectionStatus === 'disconnected' && session.connectionDetail === (detail ?? null)) {
+						continue;
+					}
+					nextSessions.set(id, {
+						...session,
+						connectionStatus: 'disconnected',
+						connectionDetail: detail ?? null
+					});
+					changed = true;
+				}
+				return changed ? { ...s, sessions: nextSessions } : s;
+			});
+		},
+
+		/**
+		 * Mark all sessions for a connection as connected again.
+		 */
+		markConnectionConnected(connectionId: string): void {
+			update((s) => {
+				let changed = false;
+				const nextSessions = new Map(s.sessions);
+				for (const [id, session] of nextSessions) {
+					if (session.connectionId !== connectionId) continue;
+					if (session.connectionStatus === 'connected' && !session.connectionDetail) continue;
+					nextSessions.set(id, { ...session, connectionStatus: 'connected', connectionDetail: null });
+					changed = true;
+				}
+				return changed ? { ...s, sessions: nextSessions } : s;
+			});
 		},
 
 		/**

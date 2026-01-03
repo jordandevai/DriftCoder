@@ -198,6 +198,89 @@ pub async fn ssh_connect(
     Ok(connection_id)
 }
 
+/// Reconnect an existing connection ID (keeps the same connId so the UI can recover sessions).
+#[tauri::command]
+pub async fn ssh_reconnect(
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<AppState>>>,
+    conn_id: String,
+    profile: ConnectionProfile,
+    password: Option<String>,
+) -> Result<(), IpcError> {
+    // Best-effort: remove any existing handle for this connection ID (stale or active).
+    // This also drops any terminals associated with the connection.
+    {
+        let mut app_state = state.lock().await;
+        if let Some(handle) = app_state.remove_connection(&conn_id) {
+            handle.task.abort();
+        }
+    }
+
+    let auth = match profile.auth_method.as_str() {
+        "key" => {
+            let key_path = profile
+                .key_path
+                .clone()
+                .ok_or_else(|| IpcError::new("invalid_key_path", "Key path required for key authentication"))?;
+            AuthMethod::Key {
+                path: key_path,
+                passphrase: password,
+            }
+        }
+        "password" => AuthMethod::Password(
+            password.ok_or_else(|| {
+                IpcError::new("missing_password", "Password required for password authentication")
+            })?,
+        ),
+        _ => return Err(IpcError::new("invalid_auth_method", "Invalid authentication method")),
+    };
+
+    emit_trace(
+        &app,
+        TraceEvent::new("ssh", "reconnect", &format!("Reconnecting: {}", conn_id))
+            .with_detail(format!("{}@{}:{}", profile.username, profile.host, profile.port)),
+    );
+
+    let mut connection = SshConnection::connect(
+        &profile.host,
+        profile.port,
+        &profile.username,
+        auth,
+        &app,
+    )
+    .await
+    .map_err(|e| map_connect_error(&profile, e))?;
+
+    // Ensure SFTP is available (same requirement as initial connect).
+    emit_trace(&app, TraceEvent::new("sftp", "verify", "Verifying SFTP availability"));
+    if let Err(e) = connection.get_home_dir().await {
+        emit_trace(&app, TraceEvent::new("sftp", "failed", "SFTP unavailable on server").with_detail(e.to_string()).error());
+        let _ = connection.disconnect().await;
+        return Err(
+            IpcError::new(
+                "sftp_unavailable",
+                "Connected, but SFTP is unavailable on this server.",
+            )
+            .with_raw(e.to_string())
+            .with_context(json!({
+                "host": profile.host,
+                "port": profile.port,
+                "username": profile.username,
+            })),
+        );
+    }
+    emit_trace(&app, TraceEvent::new("sftp", "ok", "SFTP subsystem available"));
+
+    emit_trace(&app, TraceEvent::new("actor", "spawn", "Spawning connection actor").with_detail(&conn_id));
+    let handle = spawn_connection_actor(app.clone(), conn_id.clone(), connection);
+
+    let mut app_state = state.lock().await;
+    app_state.add_connection(conn_id.clone(), handle);
+
+    emit_trace(&app, TraceEvent::new("connect", "complete", &format!("Connection ready: {}", conn_id)));
+    Ok(())
+}
+
 /// Disconnect from a remote machine
 #[tauri::command]
 pub async fn ssh_disconnect(

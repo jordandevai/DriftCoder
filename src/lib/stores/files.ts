@@ -237,6 +237,7 @@ function createFileStore() {
 
 			const onFocus = () => {
 				const session = get(activeSession);
+				if (!session || session.connectionStatus === 'disconnected') return;
 				const path = session?.fileState.activeFilePath;
 				if (!path) return;
 				void checkRemoteForOpenFile(path, { trigger: 'focus' });
@@ -253,6 +254,7 @@ function createFileStore() {
 			remotePollTimer = window.setInterval(() => {
 				if (document.hidden) return;
 				const session = get(activeSession);
+				if (!session || session.connectionStatus === 'disconnected') return;
 				const path = session?.fileState.activeFilePath;
 				if (!path) return;
 				void checkRemoteForOpenFile(path, { trigger: 'poll' });

@@ -3,12 +3,14 @@
 	import '../app.css';
 	import { connectionStore } from '$stores/connection';
 	import { debugStore } from '$stores/debug';
+	import { settingsStore } from '$stores/settings';
 
 	let { children } = $props();
 
 	onMount(() => {
 		connectionStore.init();
 		debugStore.init();
+		void settingsStore.init();
 	});
 </script>
 

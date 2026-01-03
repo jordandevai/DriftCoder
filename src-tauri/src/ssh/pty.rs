@@ -62,7 +62,8 @@ impl PtySession {
             if let Some(dir) = initial_dir {
                 // Small delay to let shell initialize
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                let cd_cmd = format!("cd {} && clear\n", shell_escape(&dir));
+                // Avoid `clear` here: it destroys scrollback (especially painful with tmux/mobile).
+                let cd_cmd = format!("cd {}\n", shell_escape(&dir));
                 if let Err(e) = channel_stream.write_all(cd_cmd.as_bytes()).await {
                     log::error!("Failed to set initial directory: {}", e);
                 }
