@@ -213,4 +213,18 @@
 	:global(.xterm-screen) {
 		background-color: #0f172a !important;
 	}
+
+	/*
+	 * Android WebView + some IMEs can surface xterm.js' hidden textarea as a visible white input field.
+	 * Force it to remain visually hidden without breaking focus-based input capture.
+	 */
+	:global(.xterm-helper-textarea) {
+		background: transparent !important;
+		color: transparent !important;
+		caret-color: transparent !important;
+		opacity: 0 !important;
+		border: 0 !important;
+		outline: 0 !important;
+		box-shadow: none !important;
+	}
 </style>
