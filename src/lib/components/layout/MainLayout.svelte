@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import { get } from 'svelte/store';
 	import { layoutStore } from '$stores/layout';
 	import { hasSessions, activeSession, orderedSessions } from '$stores/workspace';
 	import MenuToolbar from './MenuToolbar.svelte';
@@ -37,8 +38,40 @@
 	let pendingConnectionId = $state<string | null>(null);
 	let pendingProfile = $state<ConnectionProfile | null>(null);
 
+	const lastReconnectAttempt = new Map<string, number>();
+	const AUTO_RECONNECT_DEBOUNCE_MS = 30_000;
+
 	onMount(() => {
 		fileStore.initRemoteSync();
+
+		const maybeAutoReconnect = (trigger: 'focus' | 'visibility') => {
+			const session = get(activeSession);
+			if (!session) return;
+			if (session.connectionStatus !== 'disconnected') return;
+
+			const now = Date.now();
+			const last = lastReconnectAttempt.get(session.connectionId) ?? 0;
+			if (now - last < AUTO_RECONNECT_DEBOUNCE_MS) return;
+			lastReconnectAttempt.set(session.connectionId, now);
+
+			// Best-effort: reconnect in the background. Password auth will prompt once if needed.
+			void connectionStore.reconnect(session.connectionId).catch(() => {
+				// ignore; user can use the explicit Reconnect button
+			});
+		};
+
+		const onFocus = () => maybeAutoReconnect('focus');
+		const onVisibility = () => {
+			if (!document.hidden) maybeAutoReconnect('visibility');
+		};
+
+		window.addEventListener('focus', onFocus);
+		document.addEventListener('visibilitychange', onVisibility);
+
+		return () => {
+			window.removeEventListener('focus', onFocus);
+			document.removeEventListener('visibilitychange', onVisibility);
+		};
 	});
 
 	onDestroy(() => {

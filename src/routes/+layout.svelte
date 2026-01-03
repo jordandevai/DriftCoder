@@ -4,6 +4,7 @@
 	import { connectionStore } from '$stores/connection';
 	import { debugStore } from '$stores/debug';
 	import { settingsStore } from '$stores/settings';
+	import { workspaceStore } from '$stores/workspace';
 
 	let { children } = $props();
 
@@ -11,6 +12,7 @@
 		connectionStore.init();
 		debugStore.init();
 		void settingsStore.init();
+		void workspaceStore.init();
 	});
 </script>
 

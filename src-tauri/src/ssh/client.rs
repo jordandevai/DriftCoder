@@ -376,10 +376,12 @@ impl SshConnection {
         trace("ssh", "start", &format!("Connecting to {}:{} as {}", host, port, username), None, false);
 
         let mut config = Config::default();
-        // Mobile networks and some SFTP servers can be slow to respond; keepalives help
-        // prevent idle connections from being dropped while the UI is loading.
-        config.keepalive_interval = Some(Duration::from_secs(20));
-        config.keepalive_max = 3;
+        // Mobile networks (and Wi‑Fi power saving) can silently drop idle TCP sessions within minutes.
+        // Keepalives reduce NAT/idle timeouts while the app is in the foreground.
+        //
+        // Note: Android may still suspend timers/sockets in the background; we handle that via reconnect.
+        config.keepalive_interval = Some(Duration::from_secs(15));
+        config.keepalive_max = 10;
         let config = Arc::new(config);
 
         trace("dns", "lookup", &format!("Resolving {}:{}", host, port), None, false);

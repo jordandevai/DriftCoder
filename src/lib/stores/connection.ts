@@ -21,6 +21,25 @@ function createConnectionStore() {
 	return {
 		subscribe,
 
+		/**
+		 * Register a connection ID as known to the UI without connecting.
+		 * Used when restoring a workspace after the app was backgrounded/killed.
+		 */
+		registerDisconnected(connectionId: string, profile: ConnectionProfile, sessionCount = 0): void {
+			update((s) => {
+				if (s.activeConnections.has(connectionId)) return s;
+				const next = new Map(s.activeConnections);
+				next.set(connectionId, {
+					id: connectionId,
+					profile,
+					sessionCount,
+					status: 'disconnected',
+					lastDisconnectDetail: null
+				});
+				return { ...s, activeConnections: next };
+			});
+		},
+
 		async reconnect(connectionId: string, password?: string): Promise<void> {
 			const state = get({ subscribe });
 			const active = state.activeConnections.get(connectionId);

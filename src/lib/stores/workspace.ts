@@ -9,10 +9,11 @@ import type {
 	LayoutNode,
 	PanelGroup
 } from '$types';
-import { invoke } from '$utils/tauri';
+import { invoke, isTauri } from '$utils/tauri';
 import { sortEntries } from '$utils/file-tree';
 import { connectionStore } from './connection';
 import { notificationsStore } from './notifications';
+import { loadSavedWorkspace, saveWorkspace } from '$utils/storage';
 
 // Initial empty file state for new sessions
 function createInitialFileState(): SessionFileState {
@@ -51,9 +52,66 @@ const initialState: WorkspaceState = {
 
 function createWorkspaceStore() {
 	const { subscribe, set, update } = writable<WorkspaceState>(initialState);
+	let initialized = false;
+	let saveTimer: number | null = null;
+
+	function schedulePersist(next: WorkspaceState) {
+		if (!isTauri()) return;
+		if (!initialized) return;
+		if (typeof window === 'undefined') return;
+
+		if (saveTimer !== null) window.clearTimeout(saveTimer);
+		saveTimer = window.setTimeout(() => {
+			void saveWorkspace(next);
+		}, 500);
+	}
+
+	const unsubscribePersist = subscribe((s) => schedulePersist(s));
 
 	return {
 		subscribe,
+
+		async init(): Promise<void> {
+			if (initialized) return;
+			initialized = true;
+
+			if (!isTauri()) return;
+			const restored = await loadSavedWorkspace();
+			if (!restored) return;
+
+			// Mark restored sessions as disconnected (backend connections do not survive app background/kill).
+			const nextSessions = new Map(restored.sessions);
+			for (const [id, session] of nextSessions) {
+				nextSessions.set(id, {
+					...session,
+					connectionStatus: 'disconnected',
+					connectionDetail: session.connectionDetail ?? 'Restored session (reconnect required)'
+				});
+			}
+
+			// Validate active session
+			const activeSessionId =
+				restored.activeSessionId && nextSessions.has(restored.activeSessionId)
+					? restored.activeSessionId
+					: restored.sessionOrder[0] || null;
+
+			set({
+				sessions: nextSessions,
+				activeSessionId,
+				sessionOrder: restored.sessionOrder.filter((id) => nextSessions.has(id))
+			});
+
+			// Ensure connections are registered in connectionStore so reconnect works.
+			const counts = new Map<string, number>();
+			for (const session of nextSessions.values()) {
+				counts.set(session.connectionId, (counts.get(session.connectionId) ?? 0) + 1);
+			}
+			for (const [connectionId, count] of counts) {
+				const profile = Array.from(nextSessions.values()).find((s) => s.connectionId === connectionId)
+					?.connectionProfile;
+				if (profile) connectionStore.registerDisconnected(connectionId, profile, count);
+			}
+		},
 
 		/**
 		 * Create a new session with the given connection and project root
@@ -406,6 +464,11 @@ function createWorkspaceStore() {
 		 * Reset to initial state
 		 */
 		reset(): void {
+			initialized = false;
+			if (saveTimer !== null && typeof window !== 'undefined') {
+				window.clearTimeout(saveTimer);
+				saveTimer = null;
+			}
 			set(initialState);
 		}
 	};
