@@ -4,6 +4,7 @@ import { invoke } from '$utils/tauri';
 import { workspaceStore, activeSession } from './workspace';
 import { layoutStore } from './layout';
 import { settingsStore } from './settings';
+import { notificationsStore } from './notifications';
 
 function sanitizeTmuxToken(value: string): string {
 	return value
@@ -55,6 +56,48 @@ function buildStartupCommandForTerminal(sessionId: string, terminalId: string): 
 	);
 }
 
+const tmuxAvailabilityCache = new Map<string, boolean>();
+
+async function ensureTmuxAvailable(connectionId: string): Promise<boolean> {
+	const settings = get(settingsStore);
+	if (settings.terminalSessionPersistence !== 'tmux') return true;
+	if (!connectionId) return false;
+	if (tmuxAvailabilityCache.has(connectionId)) return tmuxAvailabilityCache.get(connectionId)!;
+
+	try {
+		const ok = await invoke<boolean>('ssh_check_tmux', { connId: connectionId });
+		tmuxAvailabilityCache.set(connectionId, ok);
+		return ok;
+	} catch {
+		// If the check fails (e.g. servers that restrict exec), don't block terminal creation.
+		return true;
+	}
+}
+
+function warnTmuxMissingOnce(connectionId: string, sessionId: string): void {
+	if (!connectionId) return;
+	const settings = get(settingsStore);
+	if (settings.terminalSessionPersistence !== 'tmux') return;
+
+	const ws = get(workspaceStore);
+	const session = ws.sessions.get(sessionId);
+	const profile = session?.connectionProfile;
+
+	notificationsStore.notifyOnce(`tmux_missing:${connectionId}`, {
+		severity: 'warning',
+		title: 'tmux Not Found',
+		message: profile
+			? `tmux persistence is enabled, but tmux is not installed on ${profile.host}.`
+			: 'tmux persistence is enabled, but tmux is not installed on the server.',
+		detail:
+			'Install tmux on the server to keep terminals alive across disconnects/backgrounding.\n\n' +
+			'Ubuntu/Debian: sudo apt-get install tmux\n' +
+			'Fedora: sudo dnf install tmux\n' +
+			'Arch: sudo pacman -S tmux\n' +
+			'macOS: brew install tmux'
+	});
+}
+
 interface TerminalState {
 	// Global registry of all terminals across all sessions
 	allTerminals: Map<string, TerminalSession>;
@@ -81,11 +124,14 @@ function createTerminalStore() {
 			const sessionId = session.id;
 
 			const requestedTerminalId = crypto.randomUUID();
+			const tmuxOk = await ensureTmuxAvailable(session.connectionId);
+			if (!tmuxOk) warnTmuxMissingOnce(session.connectionId, sessionId);
+
 			const terminalId = await invoke<string>('terminal_create', {
 				connId: session.connectionId,
 				workingDir: session.projectRoot,
 				termId: requestedTerminalId,
-				startupCommand: buildStartupCommandForTerminal(sessionId, requestedTerminalId)
+				startupCommand: tmuxOk ? buildStartupCommandForTerminal(sessionId, requestedTerminalId) : null
 			});
 
 			// Count existing terminals for this session for naming
@@ -200,17 +246,19 @@ function createTerminalStore() {
 		 */
 		async reopenTerminalsForConnection(connectionId: string): Promise<void> {
 			const ws = get(workspaceStore);
+			const tmuxOk = await ensureTmuxAvailable(connectionId);
 			const terminals = Array.from(get({ subscribe }).allTerminals.values());
 			for (const terminal of terminals) {
 				const session = ws.sessions.get(terminal.sessionId);
 				if (!session) continue;
 				if (session.connectionId !== connectionId) continue;
+				if (!tmuxOk) warnTmuxMissingOnce(connectionId, session.id);
 				try {
 					await invoke('terminal_reopen', {
 						connId: connectionId,
 						termId: terminal.id,
 						workingDir: session.projectRoot,
-						startupCommand: buildStartupCommandForTerminal(session.id, terminal.id)
+						startupCommand: tmuxOk ? buildStartupCommandForTerminal(session.id, terminal.id) : null
 					});
 				} catch (error) {
 					// Best-effort: a single failed terminal should not block reconnect for the workspace.
@@ -241,6 +289,7 @@ function createTerminalStore() {
 		},
 
 		reset(): void {
+			tmuxAvailabilityCache.clear();
 			set(initialState);
 		}
 	};

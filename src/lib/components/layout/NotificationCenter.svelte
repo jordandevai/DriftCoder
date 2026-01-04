@@ -64,21 +64,20 @@
 		}
 	}
 
-	async function copyDebugReport() {
-		const exportedAt = Date.now();
-		const notificationsExport = notifications.map((n) => ({
-			id: n.id,
-			severity: n.severity,
-			title: n.title,
-			message: n.message,
-			detail: n.detail ?? null,
-			createdAt: n.createdAt,
-			readAt: n.readAt ?? null,
-			dismissedAt: n.dismissedAt ?? null
-		}));
-		const report: Record<string, unknown> = {
-			exportedAt,
-			frontend: {
+		async function copyDebugReport() {
+			const exportedAt = Date.now();
+			const notificationsExport = notifications.map((n) => ({
+				id: n.id,
+				severity: n.severity,
+				title: n.title,
+				message: n.message,
+				detail: n.detail ?? null,
+				createdAt: n.createdAt,
+				readAt: n.readAt ?? null
+			}));
+			const report: Record<string, unknown> = {
+				exportedAt,
+				frontend: {
 				notifications: notificationsExport,
 				traceHistory: $traceHistory
 			}
@@ -179,9 +178,7 @@
 								>
 									Copy
 								</Button>
-								<Button size="sm" variant="ghost" onclick={() => notificationsStore.dismiss(selected.id)}>
-									Dismiss Popup
-								</Button>
+								<Button size="sm" variant="ghost" onclick={() => notificationsStore.dismiss(selected.id)}>Dismiss</Button>
 								<Button size="sm" variant="ghost" onclick={() => notificationsStore.markRead(selected.id)}>
 									Mark Read
 								</Button>

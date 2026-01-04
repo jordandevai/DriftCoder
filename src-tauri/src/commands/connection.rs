@@ -352,6 +352,31 @@ pub async fn ssh_get_home_dir(
         .map_err(|e| IpcError::new("ssh_home_dir_failed", "Failed to get home directory").with_raw(e.to_string()))
 }
 
+/// Check whether `tmux` is available on the server for an active connection.
+#[tauri::command]
+pub async fn ssh_check_tmux(
+    state: State<'_, Arc<Mutex<AppState>>>,
+    conn_id: String,
+) -> Result<bool, IpcError> {
+    let tx = {
+        let app_state = state.lock().await;
+        app_state
+            .get_connection_sender(&conn_id)
+            .ok_or_else(|| IpcError::new("connection_not_found", "Connection not found"))?
+    };
+
+    let (respond_to, rx) = oneshot::channel();
+    tx.send(ConnectionRequest::CheckTmux { respond_to })
+        .await
+        .map_err(|_| IpcError::new("connection_closed", "Connection is closed"))?;
+
+    timeout(Duration::from_secs(6), rx)
+        .await
+        .map_err(|_| IpcError::new("tmux_check_timeout", "tmux check timed out"))?
+        .map_err(|_| IpcError::new("connection_closed", "Connection is closed"))?
+        .map_err(|e| IpcError::new("tmux_check_failed", "Failed to check tmux availability").with_raw(e.to_string()))
+}
+
 /// Test a connection without persisting it
 #[tauri::command]
 pub async fn ssh_test_connection(

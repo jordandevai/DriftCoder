@@ -16,7 +16,6 @@ export interface Notification {
 	detail?: string;
 	sessionId?: string;
 	readAt: number | null;
-	dismissedAt: number | null;
 	actions: NotificationAction[];
 }
 
@@ -61,7 +60,6 @@ function createNotificationsStore() {
 				detail: input.detail,
 				sessionId: input.sessionId,
 				readAt: null,
-				dismissedAt: null,
 				actions: input.actions ?? []
 			};
 
@@ -80,7 +78,7 @@ function createNotificationsStore() {
 			if (existing && now - existing.createdAt < windowMs) {
 				const state = get({ subscribe });
 				const found = state.notifications.find((n) => n.id === existing.id);
-				if (found && !found.dismissedAt) return existing.id;
+				if (found) return existing.id;
 			}
 
 			const id = this.notify(input);
@@ -98,12 +96,11 @@ function createNotificationsStore() {
 		},
 
 		dismiss(id: string): void {
-			update((s) => ({
-				...s,
-				notifications: s.notifications.map((n) =>
-					n.id === id && !n.dismissedAt ? { ...n, dismissedAt: Date.now() } : n
-				)
-			}));
+			update((s) => {
+				const next = s.notifications.filter((n) => n.id !== id);
+				const nextSelected = s.selectedId === id ? (next[0]?.id ?? null) : s.selectedId;
+				return { ...s, notifications: next, selectedId: nextSelected };
+			});
 		},
 
 		select(id: string | null): void {
@@ -138,10 +135,6 @@ export const notificationsStore = createNotificationsStore();
 
 export const unreadCount = derived(notificationsStore, ($s) =>
 	$s.notifications.reduce((count, n) => count + (n.readAt ? 0 : 1), 0)
-);
-
-export const activePopups = derived(notificationsStore, ($s) =>
-	$s.notifications.filter((n) => !n.dismissedAt && !n.readAt).slice(0, 3)
 );
 
 export const selectedNotification = derived(notificationsStore, ($s) =>

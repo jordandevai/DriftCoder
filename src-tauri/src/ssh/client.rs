@@ -358,6 +358,43 @@ impl SshConnection {
         self.sftp = None;
     }
 
+    /// Check whether `tmux` is available on the remote server.
+    ///
+    /// Uses a non-PTY exec channel to avoid affecting any interactive shell state.
+    pub async fn check_tmux_available(&mut self) -> Result<bool, SshError> {
+        let channel = self
+            .handle
+            .channel_open_session()
+            .await
+            .map_err(|e| SshError::ChannelError(e.to_string()))?;
+
+        channel
+            .exec(true, "sh -lc 'command -v tmux 2>/dev/null || true'")
+            .await
+            .map_err(|e| SshError::ChannelError(e.to_string()))?;
+
+        let mut stream = channel.into_stream();
+        let mut buf = Vec::with_capacity(256);
+        let mut tmp = [0u8; 256];
+        loop {
+            let n = stream
+                .read(&mut tmp)
+                .await
+                .map_err(|e| SshError::ChannelError(e.to_string()))?;
+            if n == 0 {
+                break;
+            }
+            let remaining = 2048usize.saturating_sub(buf.len());
+            if remaining == 0 {
+                break;
+            }
+            buf.extend_from_slice(&tmp[..n.min(remaining)]);
+        }
+
+        let out = String::from_utf8_lossy(&buf).trim().to_string();
+        Ok(!out.is_empty())
+    }
+
     /// Establish a new SSH connection
     ///
     /// If `app` is provided, trace events will be emitted for debugging.

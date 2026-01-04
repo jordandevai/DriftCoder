@@ -60,6 +60,9 @@ pub enum ConnectionRequest {
         startup_command: Option<String>,
         respond_to: oneshot::Sender<Result<PtySession, SshError>>,
     },
+    CheckTmux {
+        respond_to: oneshot::Sender<Result<bool, SshError>>,
+    },
     Disconnect {
         respond_to: oneshot::Sender<Result<(), SshError>>,
     },
@@ -80,6 +83,7 @@ const WRITE_FILE_TIMEOUT: Duration = Duration::from_secs(60);
 const STAT_TIMEOUT: Duration = Duration::from_secs(30);
 const MUTATION_TIMEOUT: Duration = Duration::from_secs(30);
 const PTY_TIMEOUT: Duration = Duration::from_secs(20);
+const CHECK_TMUX_TIMEOUT: Duration = Duration::from_secs(5);
 
 const DIR_CACHE_TTL: Duration = Duration::from_secs(10);
 const DIR_CACHE_MAX_ENTRIES: usize = 128;
@@ -158,6 +162,7 @@ pub fn spawn_connection_actor(
                 ConnectionRequest::Delete { .. } => "Delete",
                 ConnectionRequest::Rename { .. } => "Rename",
                 ConnectionRequest::CreatePty { .. } => "CreatePty",
+                ConnectionRequest::CheckTmux { .. } => "CheckTmux",
                 ConnectionRequest::Disconnect { .. } => {
                     emit_trace(&app, TraceEvent::new("actor", "disconnect_req", "Disconnect request received"));
                     "Disconnect"
@@ -382,6 +387,23 @@ pub fn spawn_connection_actor(
                     let result = match tokio::time::timeout(PTY_TIMEOUT, result).await {
                         Ok(r) => r,
                         Err(_) => Err(SshError::ChannelError("PTY request timed out".to_string())),
+                    };
+                    if let Err(e) = &result {
+                        if is_fatal_connection_error(e) {
+                            disconnect_reason = Some(e.to_string());
+                        }
+                    }
+                    let _ = respond_to.send(result);
+                }
+                ConnectionRequest::CheckTmux { respond_to } => {
+                    let result = match tokio::time::timeout(
+                        CHECK_TMUX_TIMEOUT,
+                        connection.check_tmux_available(),
+                    )
+                    .await
+                    {
+                        Ok(r) => r,
+                        Err(_) => Err(SshError::ChannelError("tmux check timed out".to_string())),
                     };
                     if let Err(e) = &result {
                         if is_fatal_connection_error(e) {

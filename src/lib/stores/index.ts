@@ -5,7 +5,7 @@ export { diagnosticsStore } from './diagnostics';
 export { debugStore, isTraceEnabled, traceHistory } from './debug';
 export { fileStore, openFiles, activeFile, hasUnsavedFiles } from './files';
 export { layoutStore, activeGroup, activePanel, allPanels } from './layout';
-export { notificationsStore, unreadCount, activePopups, selectedNotification } from './notifications';
+export { notificationsStore, unreadCount, selectedNotification } from './notifications';
 export { promptStore } from './prompt';
 export { settingsStore } from './settings';
 export { settingsUiStore } from './settings-ui';

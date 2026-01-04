@@ -41,6 +41,7 @@ pub fn run() {
             commands::connection::ssh_reconnect,
             commands::connection::ssh_disconnect,
             commands::connection::ssh_get_home_dir,
+            commands::connection::ssh_check_tmux,
             commands::connection::ssh_test_connection,
             commands::connection::ssh_list_trusted_host_keys,
             commands::connection::ssh_trust_host_key,
