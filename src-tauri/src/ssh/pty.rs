@@ -45,6 +45,7 @@ impl PtySession {
         channel: Channel<russh::client::Msg>,
         app: AppHandle,
         working_dir: Option<String>,
+        startup_command: Option<String>,
     ) -> Self {
         let (cmd_tx, mut cmd_rx) = mpsc::channel::<PtyCommand>(100);
 
@@ -52,6 +53,7 @@ impl PtySession {
         let term_id = terminal_id.clone();
         let mut channel_stream = channel.into_stream();
         let initial_dir = working_dir.clone();
+        let initial_cmd = startup_command.clone();
 
         // Spawn a task to handle reading from the channel
         // (use Tauri's runtime for cross-platform consistency).
@@ -66,6 +68,15 @@ impl PtySession {
                 let cd_cmd = format!("cd {}\n", shell_escape(&dir));
                 if let Err(e) = channel_stream.write_all(cd_cmd.as_bytes()).await {
                     log::error!("Failed to set initial directory: {}", e);
+                }
+            }
+
+            if let Some(cmd) = initial_cmd {
+                // Small delay to ensure the shell has applied the cd (and is ready for the next command).
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                let cmd = if cmd.ends_with('\n') { cmd } else { format!("{cmd}\n") };
+                if let Err(e) = channel_stream.write_all(cmd.as_bytes()).await {
+                    log::error!("Failed to send startup command: {}", e);
                 }
             }
 

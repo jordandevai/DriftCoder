@@ -17,6 +17,61 @@ const initialState: ConnectionState = {
 function createConnectionStore() {
 	const { subscribe, set, update } = writable<ConnectionState>(initialState);
 	let unlistenConnectionStatus: (() => void) | null = null;
+	const connectionSecrets = new Map<string, { password?: string }>();
+	const disconnectingIds = new Set<string>();
+	const autoReconnectControllers = new Map<string, { cancelled: boolean }>();
+
+	const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+	const shouldAutoReconnect = (connectionId: string): boolean => {
+		const state = get({ subscribe });
+		const active = state.activeConnections.get(connectionId);
+		if (!active) return false;
+		// Only auto-reconnect when there are active workspaces using this connection.
+		if ((active.sessionCount ?? 0) <= 0) return false;
+		if (disconnectingIds.has(connectionId)) return false;
+		return true;
+	};
+
+	const startAutoReconnect = (connectionId: string) => {
+		if (!shouldAutoReconnect(connectionId)) return;
+		if (autoReconnectControllers.has(connectionId)) return;
+
+		const controller = { cancelled: false };
+		autoReconnectControllers.set(connectionId, controller);
+
+		const run = async () => {
+			let attempt = 0;
+			while (!controller.cancelled) {
+				const state = get({ subscribe });
+				const active = state.activeConnections.get(connectionId);
+				if (!active) break;
+				if ((active.sessionCount ?? 0) <= 0) break;
+				if ((active.status ?? 'connected') === 'connected') break;
+
+				const secret = connectionSecrets.get(connectionId);
+				if (active.profile.authMethod === 'password' && !secret?.password) {
+					// Can't silently auto-reconnect without a password; user can hit Reconnect to prompt.
+					break;
+				}
+
+				attempt += 1;
+				try {
+					await connectionStore.reconnect(connectionId, secret?.password);
+					break;
+				} catch {
+					// Keep retrying with backoff until user closes the workspace or reconnect succeeds.
+				}
+
+				const backoffMs = Math.min(30_000, 300 * 2 ** Math.min(8, attempt - 1));
+				await delay(backoffMs);
+			}
+		};
+
+		void run().finally(() => {
+			autoReconnectControllers.delete(connectionId);
+		});
+	};
 
 	return {
 		subscribe,
@@ -54,12 +109,17 @@ function createConnectionStore() {
 				return { ...s, status: 'connecting', activeConnections: next, error: null };
 			});
 
-			const reconnectOnce = async (overridePassword?: string): Promise<void> =>
+			const reconnectOnce = async (overridePassword?: string): Promise<void> => {
+				const usedPassword = overridePassword ?? password;
 				await invoke<void>('ssh_reconnect', {
 					connId: connectionId,
 					profile: active.profile,
-					password: overridePassword ?? password
+					password: usedPassword
 				});
+				if (active.profile.authMethod === 'password' && usedPassword) {
+					connectionSecrets.set(connectionId, { password: usedPassword });
+				}
+			};
 
 			try {
 				try {
@@ -153,6 +213,14 @@ function createConnectionStore() {
 					} else {
 						throw error;
 					}
+				}
+
+				// Re-open existing terminals for this connection so the UI can continue without "close/open new terminal".
+				try {
+					const { terminalStore } = await import('./terminal');
+					await terminalStore.reopenTerminalsForConnection(connectionId);
+				} catch (e) {
+					console.error('Failed to reopen terminals after reconnect:', e);
 				}
 
 				update((s) => {
@@ -286,6 +354,10 @@ function createConnectionStore() {
 					lastDisconnectDetail: null
 				};
 
+				if (profile.authMethod === 'password' && password) {
+					connectionSecrets.set(connectionId, { password });
+				}
+
 				update((s) => {
 					const newConnections = new Map(s.activeConnections);
 					newConnections.set(connectionId, activeConn);
@@ -312,6 +384,11 @@ function createConnectionStore() {
 		 * Disconnect a specific connection by ID
 		 */
 		async disconnectById(connectionId: string): Promise<void> {
+			disconnectingIds.add(connectionId);
+			const controller = autoReconnectControllers.get(connectionId);
+			if (controller) controller.cancelled = true;
+			autoReconnectControllers.delete(connectionId);
+			connectionSecrets.delete(connectionId);
 			try {
 				await invoke('ssh_disconnect', { connId: connectionId });
 			} catch (error) {
@@ -332,6 +409,7 @@ function createConnectionStore() {
 				newConnections.delete(connectionId);
 				return { ...s, activeConnections: newConnections };
 			});
+			disconnectingIds.delete(connectionId);
 		},
 
 		/**
@@ -523,6 +601,9 @@ function createConnectionStore() {
 					} catch (e) {
 						console.error('Failed to reconcile sessions after disconnect:', e);
 					}
+
+					// Immediately begin background auto-reconnect for active workspaces.
+					startAutoReconnect(payload.connectionId);
 				});
 			}
 		},
@@ -532,6 +613,10 @@ function createConnectionStore() {
 				unlistenConnectionStatus();
 				unlistenConnectionStatus = null;
 			}
+			autoReconnectControllers.forEach((c) => (c.cancelled = true));
+			autoReconnectControllers.clear();
+			connectionSecrets.clear();
+			disconnectingIds.clear();
 			set(initialState);
 		}
 	};

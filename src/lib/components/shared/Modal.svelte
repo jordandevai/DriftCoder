@@ -50,14 +50,16 @@
 				<div class="flex items-center justify-between px-4 py-3 border-b border-panel-border flex-shrink-0">
 					<h2 class="text-lg font-medium text-editor-fg">{title}</h2>
 					<button
-						class="p-1 rounded hover:bg-panel-active transition-colors"
+						class="flex items-center justify-center rounded transition-colors
+						       p-1 hover:bg-panel-active
+						       touch-device:w-11 touch-device:h-11 touch-device:p-0"
 						aria-label="Close modal"
 						onclick={() => {
 							open = false;
 							onclose?.();
 						}}
 					>
-						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<svg class="w-5 h-5 touch-device:w-6 touch-device:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path
 								stroke-linecap="round"
 								stroke-linejoin="round"

@@ -4,6 +4,7 @@
 	import { fileStore } from '$stores/files';
 	import { terminalStore } from '$stores/terminal';
 	import { notificationsStore } from '$stores/notifications';
+	import { connectionStore } from '$stores/connection';
 	import TabBar from './TabBar.svelte';
 	import EditorPanel from '$components/panels/EditorPanel.svelte';
 	import TerminalPanel from '$components/panels/TerminalPanel.svelte';
@@ -19,7 +20,6 @@
 	const group = $derived($layoutStore.groups.get(groupId));
 	const activePanelId = $derived(group?.activePanelId);
 	const currentSessionId = $derived($activeSession?.id);
-	const currentSessionDisconnected = $derived($activeSession?.connectionStatus === 'disconnected');
 
 	// Collect ALL terminal panels from ALL sessions for persistence
 	interface SessionPanel extends Panel {
@@ -65,6 +65,21 @@
 
 	function isVisibleTerminalPanel(panel: SessionPanel): boolean {
 		return panel.sessionId === currentSessionId && panel.id === activePanelId;
+	}
+
+	function getTerminalConnection(panel: SessionPanel): {
+		connectionId: string;
+		status: 'connected' | 'reconnecting' | 'disconnected';
+	} {
+		const session = $workspaceStore.sessions.get(panel.sessionId);
+		const connectionId = session?.connectionId ?? '';
+		const conn = connectionId ? $connectionStore.activeConnections.get(connectionId) : undefined;
+		const status = (conn?.status ??
+			(session?.connectionStatus === 'disconnected' ? 'disconnected' : 'connected')) as
+			| 'connected'
+			| 'reconnecting'
+			| 'disconnected';
+		return { connectionId, status };
 	}
 
 	function handleTabClose(panelId: string) {
@@ -134,11 +149,13 @@
 
 		<!-- Terminal panels: keep ALL sessions mounted for persistence -->
 		{#each allTerminalPanels as panel (`${panel.sessionId}-${panel.id}`)}
+			{@const conn = getTerminalConnection(panel)}
 			<div class="absolute inset-0 {isVisibleTerminalPanel(panel) ? '' : 'invisible pointer-events-none'}">
 				<TerminalPanel
 					terminalId={panel.terminalId || ''}
 					active={isVisibleTerminalPanel(panel)}
-					connectionDisconnected={isVisibleTerminalPanel(panel) && currentSessionDisconnected}
+					connectionId={conn.connectionId}
+					connectionStatus={conn.status}
 				/>
 			</div>
 		{/each}

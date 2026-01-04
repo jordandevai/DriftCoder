@@ -34,8 +34,6 @@ impl AppState {
     }
 
     pub fn remove_connection(&mut self, id: &str) -> Option<ConnectionActorHandle> {
-        // Also remove any terminals associated with this connection
-        self.terminals.retain(|_, term| term.connection_id != id);
         self.connections.remove(id)
     }
 
@@ -54,6 +52,28 @@ impl AppState {
 
     pub fn remove_terminal(&mut self, id: &str) -> Option<PtySession> {
         self.terminals.remove(id)
+    }
+
+    pub fn take_terminals_for_connection(&mut self, connection_id: &str) -> Vec<PtySession> {
+        let keys: Vec<String> = self
+            .terminals
+            .iter()
+            .filter_map(|(id, term)| {
+                if term.connection_id == connection_id {
+                    Some(id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let mut removed = Vec::with_capacity(keys.len());
+        for key in keys {
+            if let Some(term) = self.terminals.remove(&key) {
+                removed.push(term);
+            }
+        }
+        removed
     }
 }
 

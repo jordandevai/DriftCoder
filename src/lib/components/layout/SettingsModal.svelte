@@ -18,6 +18,9 @@
 
 	const open = $derived($settingsUiStore.open);
 	const scrollback = $derived($settingsStore.terminalScrollback);
+	const terminalPersistence = $derived($settingsStore.terminalSessionPersistence);
+	const tmuxPrefix = $derived($settingsStore.terminalTmuxSessionPrefix);
+	const wordWrap = $derived($settingsStore.wordWrap);
 	const themeMode = $derived($settingsStore.themeMode);
 	const themeOverrides = $derived($settingsStore.themeOverrides);
 
@@ -93,20 +96,74 @@
 		</div>
 
 		<div>
+			<div class="text-sm font-medium text-editor-fg">Editor</div>
+			<div class="text-xs text-editor-fg/70 mt-1">Code editor behavior settings.</div>
+
+			<div class="mt-3 flex items-center gap-3">
+				<label class="flex items-center gap-2 cursor-pointer">
+					<input
+						type="checkbox"
+						class="w-4 h-4 rounded border-panel-border accent-accent"
+						checked={wordWrap}
+						onchange={() => settingsStore.toggleWordWrap()}
+					/>
+					<span class="text-sm text-editor-fg/80">Word Wrap</span>
+				</label>
+				<div class="text-xs text-editor-fg/60">Wrap long lines instead of horizontal scrolling</div>
+			</div>
+		</div>
+
+		<div>
 			<div class="text-sm font-medium text-editor-fg">Terminal</div>
 			<div class="text-xs text-editor-fg/70 mt-1">
-				Higher values keep more history but use more memory. Applies immediately; existing history can’t be restored.
+				Higher values keep more history but use more memory. Applies immediately; existing history can't be restored.
+			</div>
+
+			<div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+				<div class="flex items-center gap-3">
+					<label class="text-sm text-editor-fg/80" for="settings-terminal-persistence">Session persistence</label>
+					<select
+						id="settings-terminal-persistence"
+						class="input w-32"
+						value={terminalPersistence}
+						onchange={(e) =>
+							settingsStore.setTerminalSessionPersistence(
+								(e.currentTarget as HTMLSelectElement).value as 'none' | 'tmux'
+							)}
+					>
+						<option value="none">None</option>
+						<option value="tmux">tmux</option>
+					</select>
+				</div>
+				<div class="flex items-center gap-3">
+					<label class="text-sm text-editor-fg/80" for="settings-terminal-tmux-prefix">tmux prefix</label>
+					<input
+						id="settings-terminal-tmux-prefix"
+						class="input w-32"
+						value={tmuxPrefix}
+						disabled={terminalPersistence !== 'tmux'}
+						oninput={(e) =>
+							settingsStore.setTerminalTmuxSessionPrefix((e.currentTarget as HTMLInputElement).value)}
+					/>
+				</div>
+			</div>
+
+			<div class="mt-2 text-xs text-editor-fg/60">
+				If enabled, terminals attach to a stable remote tmux session so they survive reconnects/backgrounding. Requires tmux on the server.
 			</div>
 
 			<div class="mt-3 flex items-center gap-3">
+				<label class="text-sm text-editor-fg/80" for="settings-terminal-scrollback">Scrollback</label>
 				<input
+					id="settings-terminal-scrollback"
 					class="input w-32"
 					type="number"
 					min="1000"
 					max="200000"
 					step="1000"
 					value={scrollback}
-					oninput={(e) => settingsStore.setTerminalScrollback(Number((e.currentTarget as HTMLInputElement).value))}
+					oninput={(e) =>
+						settingsStore.setTerminalScrollback(Number((e.currentTarget as HTMLInputElement).value))}
 				/>
 				<div class="text-xs text-editor-fg/60">Default: 50000</div>
 			</div>

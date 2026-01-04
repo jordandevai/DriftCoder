@@ -57,6 +57,7 @@ pub enum ConnectionRequest {
     CreatePty {
         terminal_id: String,
         working_dir: Option<String>,
+        startup_command: Option<String>,
         respond_to: oneshot::Sender<Result<PtySession, SshError>>,
     },
     Disconnect {
@@ -92,6 +93,7 @@ pub fn spawn_connection_actor(
 
     let task = tauri::async_runtime::spawn(async move {
         let mut dir_cache = DirectoryCache::new(DIR_CACHE_TTL, DIR_CACHE_MAX_ENTRIES);
+        let mut disconnect_watch = connection.disconnect_watcher();
 
         emit_trace(&app, TraceEvent::new("actor", "loop_start", &format!("Actor loop starting for {}", connection_id)));
 
@@ -109,7 +111,25 @@ pub fn spawn_connection_actor(
 
         emit_trace(&app, TraceEvent::new("actor", "waiting", "Actor waiting for requests"));
 
-        while let Some(request) = rx.recv().await {
+        loop {
+            // Prefer handling disconnects even if no requests are in-flight (important on mobile where
+            // terminal channels can die while the SFTP actor is idle).
+            let request = tokio::select! {
+                r = rx.recv() => r,
+                changed = disconnect_watch.changed() => {
+                    if changed.is_ok() {
+                        if let Some(detail) = disconnect_watch.borrow().clone() {
+                            disconnect_reason = Some(detail);
+                            break;
+                        }
+                    }
+                    // If the watch channel closed or carried no detail, keep waiting for requests.
+                    continue;
+                }
+            };
+
+            let Some(request) = request else { break; };
+
             request_count += 1;
             let request_name = match &request {
                 ConnectionRequest::GetHomeDir { .. } => "GetHomeDir",
@@ -348,6 +368,7 @@ pub fn spawn_connection_actor(
                 ConnectionRequest::CreatePty {
                     terminal_id,
                     working_dir,
+                    startup_command,
                     respond_to,
                 } => {
                     let result = connection
@@ -356,6 +377,7 @@ pub fn spawn_connection_actor(
                             connection_id.clone(),
                             app.clone(),
                             working_dir,
+                            startup_command,
                         );
                     let result = match tokio::time::timeout(PTY_TIMEOUT, result).await {
                         Ok(r) => r,

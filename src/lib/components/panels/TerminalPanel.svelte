@@ -3,6 +3,7 @@
 	import { invoke, listen } from '$utils/tauri';
 	import { notificationsStore } from '$stores/notifications';
 	import { settingsStore } from '$stores/settings';
+	import { connectionStore } from '$stores/connection';
 	import { TERMINAL_THEME_KEYS, toKebabCase } from '$utils/theme';
 
 	import type { Terminal as TerminalType } from 'xterm';
@@ -11,10 +12,11 @@
 	interface Props {
 		terminalId: string;
 		active?: boolean;
-		connectionDisconnected?: boolean;
+		connectionId?: string;
+		connectionStatus?: 'connected' | 'reconnecting' | 'disconnected';
 	}
 
-	let { terminalId, active = false, connectionDisconnected = false }: Props = $props();
+	let { terminalId, active = false, connectionId, connectionStatus = 'connected' }: Props = $props();
 
 	let terminalContainer: HTMLDivElement;
 	let terminal: TerminalType | null = null;
@@ -24,13 +26,20 @@
 	let themeObserver: MutationObserver | null = null;
 	let writeErrorNotified = false;
 	let resizeErrorNotified = false;
-	let disconnected = $state(false);
+	let ptyDisconnected = $state(false);
 	const scrollback = $derived($settingsStore.terminalScrollback ?? 50_000);
 	const themeMode = $derived($settingsStore.themeMode);
 	const themeOverrides = $derived($settingsStore.themeOverrides);
+	const connectionDown = $derived(connectionStatus !== 'connected');
+	const isReconnecting = $derived(connectionStatus === 'reconnecting');
 
 	$effect(() => {
-		if (connectionDisconnected) disconnected = true;
+		if (!connectionDown) {
+			// When the SSH connection is healthy again (auto-reconnect), clear terminal error state so input works.
+			ptyDisconnected = false;
+			writeErrorNotified = false;
+			resizeErrorNotified = false;
+		}
 	});
 
 	$effect(() => {
@@ -129,14 +138,16 @@
 
 		// Handle user input
 		terminal.onData(async (data) => {
-			if (disconnected) return;
+			if (connectionDown || ptyDisconnected) return;
 			try {
 				const bytes = new TextEncoder().encode(data);
 				await invoke('terminal_write', { termId: terminalId, data: Array.from(bytes) });
 			} catch (error) {
 				console.error('Failed to write to terminal:', error);
-				disconnected = true;
-				if (!writeErrorNotified) {
+				ptyDisconnected = true;
+				// If the SSH connection is already down, avoid spamming "terminal disconnected" noise;
+				// the reconnect flow will surface the underlying connection issue.
+				if (!connectionDown && !writeErrorNotified) {
 					writeErrorNotified = true;
 					notificationsStore.notify({
 						severity: 'error',
@@ -151,10 +162,11 @@
 		// Handle resize
 		terminal.onResize(async ({ cols, rows }) => {
 			try {
+				if (connectionDown || ptyDisconnected) return;
 				await invoke('terminal_resize', { termId: terminalId, cols, rows });
 			} catch (error) {
 				console.error('Failed to resize terminal:', error);
-				if (!resizeErrorNotified) {
+				if (!connectionDown && !resizeErrorNotified) {
 					resizeErrorNotified = true;
 					notificationsStore.notify({
 						severity: 'warning',
@@ -230,13 +242,41 @@
 <div class="h-full w-full p-1" style="background-color: rgb(var(--c-terminal-background));">
 	<div class="relative h-full w-full">
 		<div bind:this={terminalContainer} class="h-full w-full"></div>
-		{#if disconnected}
-			<div class="absolute inset-0 flex items-center justify-center bg-black/50 pointer-events-auto">
-				<div class="bg-panel-bg border border-panel-border rounded px-4 py-3 text-sm text-gray-100 max-w-sm">
-					<div class="font-medium mb-1">Terminal disconnected</div>
-					<div class="text-xs text-gray-300">
-						The remote terminal closed or the SSH connection dropped. Open a new terminal after reconnecting.
+		{#if connectionDown || ptyDisconnected}
+			<div class="absolute left-2 right-2 top-2 z-10 pointer-events-auto">
+				<div class="flex items-center justify-between gap-2 rounded border border-panel-border bg-panel-bg/95 px-3 py-2 text-xs text-gray-100 shadow">
+					<div class="min-w-0">
+						{#if isReconnecting}
+							<div class="font-medium truncate">Reconnecting…</div>
+							<div class="text-[11px] text-gray-300 truncate">
+								Keeping this terminal open and restoring the session when the connection returns.
+							</div>
+						{:else if connectionDown}
+							<div class="font-medium truncate">Disconnected</div>
+							<div class="text-[11px] text-gray-300 truncate">
+								Connection dropped. DriftCoder will try to reconnect automatically.
+							</div>
+						{:else}
+							<div class="font-medium truncate">Terminal closed</div>
+							<div class="text-[11px] text-gray-300 truncate">
+								The remote shell ended. Reopen this terminal or create a new one.
+							</div>
+						{/if}
 					</div>
+					{#if connectionId && connectionStatus === 'disconnected'}
+						<button
+							class="shrink-0 rounded bg-white/10 px-2 py-1 hover:bg-white/20 transition-colors"
+							onclick={async () => {
+								try {
+									await connectionStore.reconnect(connectionId);
+								} catch {
+									// reconnect flow handles prompts/errors
+								}
+							}}
+						>
+							Reconnect
+						</button>
+					{/if}
 				</div>
 			</div>
 		{/if}

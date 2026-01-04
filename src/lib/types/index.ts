@@ -105,6 +105,8 @@ export interface SettingsState {
 	autosave: boolean;
 	autosaveDelay: number;
 	terminalScrollback: number;
+	terminalSessionPersistence: 'none' | 'tmux';
+	terminalTmuxSessionPrefix: string;
 	themeMode: 'dark' | 'light' | 'system';
 	themeOverrides: {
 		dark?: {

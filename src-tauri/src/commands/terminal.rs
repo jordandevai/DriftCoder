@@ -15,9 +15,12 @@ pub async fn terminal_create(
     state: State<'_, Arc<Mutex<AppState>>>,
     conn_id: String,
     working_dir: Option<String>,
+    term_id: Option<String>,
+    startup_command: Option<String>,
 ) -> Result<String, IpcError> {
-    let terminal_id = Uuid::new_v4().to_string();
+    let terminal_id = term_id.unwrap_or_else(|| Uuid::new_v4().to_string());
     let working_dir_for_context = working_dir.clone();
+    let startup_command_for_context = startup_command.clone();
 
     let tx = {
         let app_state = state.lock().await;
@@ -30,6 +33,7 @@ pub async fn terminal_create(
     tx.send(ConnectionRequest::CreatePty {
         terminal_id: terminal_id.clone(),
         working_dir,
+        startup_command,
         respond_to,
     })
     .await
@@ -41,7 +45,7 @@ pub async fn terminal_create(
         .map_err(|e| {
             IpcError::new("terminal_create_failed", "Terminal create failed")
                 .with_raw(e.to_string())
-                .with_context(json!({ "workingDir": working_dir_for_context }))
+                .with_context(json!({ "workingDir": working_dir_for_context, "startupCommand": startup_command_for_context }))
         })?;
 
     let mut app_state = state.lock().await;
@@ -50,6 +54,61 @@ pub async fn terminal_create(
     log::info!("Terminal session created: {}", terminal_id);
 
     Ok(terminal_id)
+}
+
+/// Re-open an existing terminal ID on a (re)connected SSH session.
+///
+/// This lets the frontend keep the same terminal tab and scrollback while we recreate the PTY channel.
+#[tauri::command]
+pub async fn terminal_reopen(
+    _app: AppHandle,
+    state: State<'_, Arc<Mutex<AppState>>>,
+    conn_id: String,
+    term_id: String,
+    working_dir: Option<String>,
+    startup_command: Option<String>,
+) -> Result<(), IpcError> {
+    let working_dir_for_context = working_dir.clone();
+    let startup_command_for_context = startup_command.clone();
+
+    // Best-effort: close and remove any existing PTY session with this terminal ID.
+    if let Some(mut existing) = { state.lock().await.remove_terminal(&term_id) } {
+        let _ = existing.close().await;
+    }
+
+    let tx = {
+        let app_state = state.lock().await;
+        app_state
+            .get_connection_sender(&conn_id)
+            .ok_or_else(|| IpcError::new("connection_not_found", "Connection not found"))?
+    };
+
+    let (respond_to, rx) = oneshot::channel();
+    tx.send(ConnectionRequest::CreatePty {
+        terminal_id: term_id.clone(),
+        working_dir,
+        startup_command,
+        respond_to,
+    })
+    .await
+    .map_err(|_| IpcError::new("connection_closed", "Connection is closed"))?;
+
+    let pty_session = rx
+        .await
+        .map_err(|_| IpcError::new("connection_closed", "Connection is closed"))?
+        .map_err(|e| {
+            IpcError::new("terminal_reopen_failed", "Terminal reopen failed")
+                .with_raw(e.to_string())
+                .with_context(json!({ "workingDir": working_dir_for_context, "startupCommand": startup_command_for_context }))
+        })?;
+
+    state
+        .lock()
+        .await
+        .add_terminal(term_id.clone(), pty_session);
+
+    log::info!("Terminal session reopened: {}", term_id);
+    Ok(())
 }
 
 /// Write data to a terminal

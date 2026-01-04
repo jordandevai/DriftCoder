@@ -21,7 +21,7 @@ use tauri::AppHandle;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::{lookup_host, TcpStream};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize)]
@@ -233,6 +233,7 @@ struct ClientHandler {
     host: String,
     port: u16,
     correlation_id: String,
+    disconnect_tx: watch::Sender<Option<String>>,
 }
 
 #[derive(Debug, Error)]
@@ -320,6 +321,10 @@ impl Handler for ClientHandler {
         &mut self,
         reason: russh::client::DisconnectReason<Self::Error>,
     ) -> Result<(), Self::Error> {
+        // Signal the owning actor so it can transition to "disconnected" immediately,
+        // even if no SFTP requests are in-flight.
+        let _ = self.disconnect_tx.send(Some(format!("{reason:?}")));
+
         emit_trace(
             &self.app,
             TraceEvent::new("ssh", "disconnected", "SSH session disconnected")
@@ -341,9 +346,14 @@ pub struct SshConnection {
     sftp: Option<Arc<Mutex<SftpSession>>>,
     #[allow(dead_code)]
     username: String,
+    disconnect_rx: watch::Receiver<Option<String>>,
 }
 
 impl SshConnection {
+    pub fn disconnect_watcher(&self) -> watch::Receiver<Option<String>> {
+        self.disconnect_rx.clone()
+    }
+
     pub fn reset_sftp(&mut self) {
         self.sftp = None;
     }
@@ -380,8 +390,13 @@ impl SshConnection {
         // Keepalives reduce NAT/idle timeouts while the app is in the foreground.
         //
         // Note: Android may still suspend timers/sockets in the background; we handle that via reconnect.
-        config.keepalive_interval = Some(Duration::from_secs(15));
-        config.keepalive_max = 10;
+        // Send periodic SSH keepalives to reduce NAT / Wi‑Fi idle drops.
+        //
+        // IMPORTANT: `russh`'s `keepalive_max` is a client-side "server not responding" cutoff.
+        // On mobile networks, we prefer staying connected (or failing only on real IO errors)
+        // rather than proactively disconnecting due to transient keepalive gaps.
+        config.keepalive_interval = Some(Duration::from_secs(30));
+        config.keepalive_max = 0;
         let config = Arc::new(config);
 
         trace("dns", "lookup", &format!("Resolving {}:{}", host, port), None, false);
@@ -423,6 +438,7 @@ impl SshConnection {
 
         let mut last_error: Option<SshError> = None;
         let mut handle: Option<Handle<ClientHandler>> = None;
+        let mut disconnect_rx: Option<watch::Receiver<Option<String>>> = None;
 
         for (addr_idx, addr) in resolved.iter().copied().enumerate() {
             trace(
@@ -557,11 +573,14 @@ impl SshConnection {
 
                 let socket = InstrumentedTcpStream::new(socket, transcript.clone());
 
+                let (disconnect_tx, disconnect_rx_for_attempt) =
+                    watch::channel::<Option<String>>(None);
                 let handler = ClientHandler {
                     app: app.clone(),
                     host: host.to_string(),
                     port,
                     correlation_id: attempt_id.clone(),
+                    disconnect_tx,
                 };
 
                 match client::connect_stream(config.clone(), socket, handler).await {
@@ -593,6 +612,7 @@ impl SshConnection {
                             outcome_detail: None,
                         });
                         handle = Some(h);
+                        disconnect_rx = Some(disconnect_rx_for_attempt);
                         break;
                     }
                     Err(e) => {
@@ -815,6 +835,7 @@ impl SshConnection {
             handle,
             sftp: None,
             username: username.to_string(),
+            disconnect_rx: disconnect_rx.unwrap_or_else(|| watch::channel(None).1),
         })
     }
 
@@ -1143,6 +1164,7 @@ impl SshConnection {
         connection_id: String,
         app: AppHandle,
         working_dir: Option<String>,
+        startup_command: Option<String>,
     ) -> Result<PtySession, SshError> {
         let channel = self
             .handle
@@ -1162,7 +1184,14 @@ impl SshConnection {
             .await
             .map_err(|e| SshError::ChannelError(e.to_string()))?;
 
-        Ok(PtySession::new(terminal_id, connection_id, channel, app, working_dir))
+        Ok(PtySession::new(
+            terminal_id,
+            connection_id,
+            channel,
+            app,
+            working_dir,
+            startup_command,
+        ))
     }
 
     /// Disconnect the SSH connection

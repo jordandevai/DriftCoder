@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { fileStore } from '$stores/files';
+	import { settingsStore } from '$stores/settings';
 	import { Compartment, EditorState, type Extension } from '@codemirror/state';
 	import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from '@codemirror/view';
 	import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
@@ -27,7 +28,9 @@
 	let languageLoadVersion = 0;
 
 	const file = $derived($fileStore.openFiles.get(filePath));
+	const wordWrap = $derived($settingsStore.wordWrap);
 	const languageCompartment = new Compartment();
+	const wrapCompartment = new Compartment();
 
 	// Dark theme
 	const darkTheme = EditorView.theme({
@@ -112,7 +115,8 @@
 					fileStore.updateFileContent(filePath, newContent);
 				}
 			}),
-			languageCompartment.of([])
+			languageCompartment.of([]),
+			wrapCompartment.of(wordWrap ? EditorView.lineWrapping : [])
 		];
 
 		const state = EditorState.create({
@@ -238,6 +242,14 @@
 		if (currentContent !== file.content) {
 			setEditorContent(file.content);
 		}
+	});
+
+	// React to wordWrap setting changes
+	$effect(() => {
+		if (!editorView) return;
+		editorView.dispatch({
+			effects: wrapCompartment.reconfigure(wordWrap ? EditorView.lineWrapping : [])
+		});
 	});
 </script>
 

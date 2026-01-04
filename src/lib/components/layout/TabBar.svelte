@@ -80,14 +80,16 @@
 
 			<!-- Close button -->
 			<button
-				class="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-panel-border transition-all"
+				class="flex items-center justify-center rounded transition-all
+				       p-0.5 opacity-0 group-hover:opacity-100 hover:bg-panel-border
+				       touch-device:w-11 touch-device:h-11 touch-device:opacity-60 touch-device:-mr-2"
 				onclick={(e) => {
 					e.stopPropagation();
 					onclose(panel.id);
 				}}
 				aria-label="Close tab"
 			>
-				<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<svg class="w-3.5 h-3.5 touch-device:w-4 touch-device:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path
 						stroke-linecap="round"
 						stroke-linejoin="round"

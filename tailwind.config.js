@@ -41,5 +41,10 @@ export default {
 			}
 		}
 	},
-	plugins: []
+	plugins: [
+		function({ addVariant }) {
+			addVariant('touch-device', '@media (pointer: coarse)');
+			addVariant('mouse-device', '@media (pointer: fine)');
+		}
+	]
 };

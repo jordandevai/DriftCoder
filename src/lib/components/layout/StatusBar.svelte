@@ -18,10 +18,20 @@
 	let cursorColumn = $state(1);
 
 	const isConnecting = $derived($connectionStore.status === 'connecting');
-	const isDisconnected = $derived($activeSession?.connectionStatus === 'disconnected');
+	const activeConnectionStatus = $derived.by(() => {
+		const session = $activeSession;
+		if (!session) return 'disconnected' as const;
+		const conn = $connectionStore.activeConnections.get(session.connectionId);
+		return (conn?.status ?? (session.connectionStatus === 'disconnected' ? 'disconnected' : 'connected')) as
+			| 'connected'
+			| 'reconnecting'
+			| 'disconnected';
+	});
+	const isDisconnected = $derived(activeConnectionStatus === 'disconnected');
+	const isReconnecting = $derived(activeConnectionStatus === 'reconnecting');
 
 	async function handleNewTerminal() {
-		if (isDisconnected) {
+		if (activeConnectionStatus !== 'connected') {
 			try {
 				await connectionStore.reconnect($activeSession!.connectionId);
 			} catch {
@@ -50,11 +60,15 @@
 		<div
 			class="flex items-center gap-1.5 px-2 py-0.5"
 		>
-			<span class="w-2 h-2 rounded-full {isDisconnected ? 'bg-error' : 'bg-success'}"></span>
+			<span
+				class="w-2 h-2 rounded-full {isDisconnected ? 'bg-error' : isReconnecting ? 'bg-warning animate-pulse' : 'bg-success'}"
+			></span>
 			<span>
 				{$activeSession.connectionProfile.username}@{$activeSession.connectionProfile.host}
 			</span>
-			{#if isDisconnected}
+			{#if isReconnecting}
+				<span class="ml-2 text-[10px] text-editor-fg/60">Reconnecting…</span>
+			{:else if isDisconnected}
 				<button
 					class="ml-2 px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 transition-colors"
 					onclick={async () => {

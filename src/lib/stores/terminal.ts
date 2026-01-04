@@ -3,6 +3,57 @@ import type { TerminalSession } from '$types';
 import { invoke } from '$utils/tauri';
 import { workspaceStore, activeSession } from './workspace';
 import { layoutStore } from './layout';
+import { settingsStore } from './settings';
+
+function sanitizeTmuxToken(value: string): string {
+	return value
+		.trim()
+		.replace(/[^a-zA-Z0-9._-]+/g, '_')
+		.replace(/^_+|_+$/g, '')
+		.slice(0, 40);
+}
+
+function fnv1aHash36(input: string): string {
+	let hash = 0x811c9dc5;
+	for (let i = 0; i < input.length; i += 1) {
+		hash ^= input.charCodeAt(i);
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return (hash >>> 0).toString(36);
+}
+
+function projectSlugFromRoot(projectRoot: string): string {
+	const base = projectRoot.split('/').filter(Boolean).pop() || 'project';
+	return sanitizeTmuxToken(base.toLowerCase()) || 'project';
+}
+
+function buildStartupCommandForTerminal(sessionId: string, terminalId: string): string | null {
+	const settings = get(settingsStore);
+	if (settings.terminalSessionPersistence !== 'tmux') return null;
+	const prefix = sanitizeTmuxToken(settings.terminalTmuxSessionPrefix || 'driftcoder') || 'driftcoder';
+	const ws = get(workspaceStore);
+	const session = ws.sessions.get(sessionId);
+	const projectRoot = session?.projectRoot || '';
+	const profile = session?.connectionProfile;
+	const identity = profile
+		? `${profile.username}@${profile.host}:${profile.port}|${projectRoot}`
+		: `${projectRoot}`;
+	const suffix = fnv1aHash36(identity).slice(0, 6) || '000000';
+	const projectSlug = projectSlugFromRoot(projectRoot);
+	const tmuxSession = `${prefix}-${projectSlug}-${suffix}`;
+	const window = `t-${sanitizeTmuxToken(terminalId.slice(0, 8)) || 'term'}`;
+
+	// One tmux session per project + one tmux window per DriftCoder terminal tab.
+	// Guard against nesting: if the user is already inside tmux ($TMUX set), do nothing.
+	return (
+		`if [ -z "$TMUX" ] && command -v tmux >/dev/null 2>&1; then ` +
+		`session="${tmuxSession}"; window="${window}"; ` +
+		`tmux has-session -t "$session" 2>/dev/null || tmux new-session -d -s "$session" -n "$window"; ` +
+		`tmux list-windows -t "$session" -F "#{window_name}" 2>/dev/null | grep -Fxq "$window" || tmux new-window -t "$session" -n "$window" -c "$PWD"; ` +
+		`exec tmux attach -t "$session:$window"; ` +
+		`fi`
+	);
+}
 
 interface TerminalState {
 	// Global registry of all terminals across all sessions
@@ -29,9 +80,12 @@ function createTerminalStore() {
 			}
 			const sessionId = session.id;
 
+			const requestedTerminalId = crypto.randomUUID();
 			const terminalId = await invoke<string>('terminal_create', {
 				connId: session.connectionId,
-				workingDir: session.projectRoot
+				workingDir: session.projectRoot,
+				termId: requestedTerminalId,
+				startupCommand: buildStartupCommandForTerminal(sessionId, requestedTerminalId)
 			});
 
 			// Count existing terminals for this session for naming
@@ -137,6 +191,31 @@ function createTerminalStore() {
 			const terminals = this.getSessionTerminals(sessionId);
 			for (const terminal of terminals) {
 				await this.closeTerminal(terminal.id);
+			}
+		},
+
+		/**
+		 * Re-open all terminals for a given SSH connection.
+		 * Used after auto-reconnect so terminal tabs keep their scrollback and IDs.
+		 */
+		async reopenTerminalsForConnection(connectionId: string): Promise<void> {
+			const ws = get(workspaceStore);
+			const terminals = Array.from(get({ subscribe }).allTerminals.values());
+			for (const terminal of terminals) {
+				const session = ws.sessions.get(terminal.sessionId);
+				if (!session) continue;
+				if (session.connectionId !== connectionId) continue;
+				try {
+					await invoke('terminal_reopen', {
+						connId: connectionId,
+						termId: terminal.id,
+						workingDir: session.projectRoot,
+						startupCommand: buildStartupCommandForTerminal(session.id, terminal.id)
+					});
+				} catch (error) {
+					// Best-effort: a single failed terminal should not block reconnect for the workspace.
+					console.error(`Failed to reopen terminal ${terminal.id}:`, error);
+				}
 			}
 		},
 

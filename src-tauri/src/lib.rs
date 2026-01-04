@@ -57,6 +57,7 @@ pub fn run() {
             commands::filesystem::sftp_rename,
             // Terminal commands
             commands::terminal::terminal_create,
+            commands::terminal::terminal_reopen,
             commands::terminal::terminal_write,
             commands::terminal::terminal_resize,
             commands::terminal::terminal_close,

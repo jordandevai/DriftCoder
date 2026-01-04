@@ -143,6 +143,28 @@
 		document.removeEventListener('mouseup', stopResize);
 	}
 
+	function startTouchResize(e: TouchEvent) {
+		if (e.touches.length !== 1) return;
+		e.preventDefault();
+		resizing = true;
+		document.addEventListener('touchmove', handleTouchResize, { passive: false });
+		document.addEventListener('touchend', stopTouchResize);
+		document.addEventListener('touchcancel', stopTouchResize);
+	}
+
+	function handleTouchResize(e: TouchEvent) {
+		if (!resizing || e.touches.length !== 1) return;
+		e.preventDefault();
+		layoutStore.setFileTreeWidth(e.touches[0].clientX);
+	}
+
+	function stopTouchResize() {
+		resizing = false;
+		document.removeEventListener('touchmove', handleTouchResize);
+		document.removeEventListener('touchend', stopTouchResize);
+		document.removeEventListener('touchcancel', stopTouchResize);
+	}
+
 	function handleGlobalKeydown(e: KeyboardEvent) {
 		const mod = e.metaKey || e.ctrlKey;
 		if (!mod) return;
@@ -222,9 +244,32 @@
 				<!-- Resizer -->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
-					class="w-1 cursor-col-resize bg-transparent hover:bg-accent/50 transition-colors flex-shrink-0"
+					class="cursor-col-resize bg-transparent transition-colors flex-shrink-0 flex items-center justify-center
+					       w-1 hover:bg-accent/50
+					       touch-device:w-5 touch-device:bg-panel-border/30 touch-device:hover:bg-accent/30"
 					onmousedown={startResize}
-				></div>
+					ontouchstart={startTouchResize}
+				>
+					<!-- Grip indicator (3 horizontal lines) - visible on touch devices -->
+					<div class="hidden touch-device:flex flex-col gap-1 opacity-40">
+						<div class="w-3 h-0.5 rounded-full bg-gray-400"></div>
+						<div class="w-3 h-0.5 rounded-full bg-gray-400"></div>
+						<div class="w-3 h-0.5 rounded-full bg-gray-400"></div>
+					</div>
+				</div>
+			{:else}
+				<!-- Expand button when file tree is collapsed -->
+				<button
+					class="flex-shrink-0 flex items-center justify-center bg-sidebar-bg border-r border-panel-border transition-colors hover:bg-sidebar-hover
+					       w-8 touch-device:w-12"
+					onclick={toggleFileTree}
+					title="Expand file tree (Ctrl+B)"
+					aria-label="Expand file tree"
+				>
+					<svg class="w-4 h-4 touch-device:w-5 touch-device:h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+					</svg>
+				</button>
 			{/if}
 
 			<!-- Panel Area -->

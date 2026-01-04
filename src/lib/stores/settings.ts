@@ -22,6 +22,8 @@ const defaultSettings: SettingsState = {
 	autosave: false,
 	autosaveDelay: 1000,
 	terminalScrollback: 50_000,
+	terminalSessionPersistence: 'none',
+	terminalTmuxSessionPrefix: 'driftcoder',
 	themeMode: 'dark',
 	themeOverrides: {}
 };
@@ -81,9 +83,14 @@ function createSettingsStore() {
 
 			if (isTauri()) {
 				const loaded = await loadSavedSettings();
-				if (loaded) {
-					set({ ...defaultSettings, ...loaded });
-				}
+				const coarsePointer =
+					typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
+				const mobileDefault: SettingsState = {
+					...defaultSettings,
+					terminalSessionPersistence: coarsePointer ? 'tmux' : defaultSettings.terminalSessionPersistence
+				};
+				if (loaded) set({ ...mobileDefault, ...loaded });
+				else set(mobileDefault);
 
 				// Persist changes (debounced) after init completes.
 				unsubscribePersist = subscribe((s) => schedulePersist(s));
@@ -115,6 +122,15 @@ function createSettingsStore() {
 
 		setThemeMode(mode: ThemeMode): void {
 			update((s) => ({ ...s, themeMode: mode }));
+		},
+
+		setTerminalSessionPersistence(mode: 'none' | 'tmux'): void {
+			update((s) => ({ ...s, terminalSessionPersistence: mode }));
+		},
+
+		setTerminalTmuxSessionPrefix(prefix: string): void {
+			const normalized = prefix.trim() || 'driftcoder';
+			update((s) => ({ ...s, terminalTmuxSessionPrefix: normalized }));
 		},
 
 		setThemeUiColor(theme: ThemeName, key: UiColorKey, hex: string): void {

@@ -3,6 +3,7 @@
 	import { layoutStore } from '$stores/layout';
 	import { activeSession } from '$stores/workspace';
 	import { confirmStore } from '$stores/confirm';
+	import { toggleFileTree } from '$utils/commands';
 	import type { FileEntry } from '$types';
 
 	let contextMenu = $state<{ x: number; y: number; entry: FileEntry } | null>(null);
@@ -249,6 +250,17 @@
 						stroke-width="2"
 						d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
 					/>
+				</svg>
+			</button>
+			<button
+				class="p-1 rounded hover:bg-sidebar-hover transition-colors
+				       touch-device:w-11 touch-device:h-11 touch-device:p-0 touch-device:flex touch-device:items-center touch-device:justify-center"
+				title="Collapse file tree (Ctrl+B)"
+				onclick={toggleFileTree}
+				aria-label="Collapse file tree"
+			>
+				<svg class="w-4 h-4 touch-device:w-5 touch-device:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
 				</svg>
 			</button>
 		</div>

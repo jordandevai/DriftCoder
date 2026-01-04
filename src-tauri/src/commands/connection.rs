@@ -208,12 +208,18 @@ pub async fn ssh_reconnect(
     password: Option<String>,
 ) -> Result<(), IpcError> {
     // Best-effort: remove any existing handle for this connection ID (stale or active).
-    // This also drops any terminals associated with the connection.
-    {
+    // Also drop any existing PTY sessions for this connection; the UI will re-open them after reconnect.
+    let stale_terminals = {
         let mut app_state = state.lock().await;
+        let terminals = app_state.take_terminals_for_connection(&conn_id);
         if let Some(handle) = app_state.remove_connection(&conn_id) {
             handle.task.abort();
         }
+        terminals
+    };
+    for mut terminal in stale_terminals {
+        // Best-effort cleanup; avoid blocking reconnect if this hangs.
+        let _ = timeout(Duration::from_millis(500), terminal.close()).await;
     }
 
     let auth = match profile.auth_method.as_str() {
@@ -287,9 +293,11 @@ pub async fn ssh_disconnect(
     state: State<'_, Arc<Mutex<AppState>>>,
     conn_id: String,
 ) -> Result<(), IpcError> {
-    let handle = {
+    let (handle, terminals) = {
         let mut app_state = state.lock().await;
-        app_state.remove_connection(&conn_id)
+        let handle = app_state.remove_connection(&conn_id);
+        let terminals = app_state.take_terminals_for_connection(&conn_id);
+        (handle, terminals)
     };
 
     if let Some(handle) = handle {
@@ -311,6 +319,11 @@ pub async fn ssh_disconnect(
         }
 
         log::info!("SSH connection closed: {}", conn_id);
+    }
+
+    // Close any PTY sessions that were using this connection.
+    for mut terminal in terminals {
+        let _ = timeout(Duration::from_millis(500), terminal.close()).await;
     }
 
     Ok(())
