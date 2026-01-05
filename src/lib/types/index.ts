@@ -155,6 +155,11 @@ export interface Session {
 	displayName: string; // e.g., "server:folder"
 	fileState: SessionFileState;
 	terminalIds: string[];
+	/**
+	 * Stable ordinal per terminal tab (used for deterministic tmux window names like `term1`, `term2`).
+	 * Keyed by `terminalId`.
+	 */
+	terminalOrdinals?: Record<string, number>;
 	layoutState: SessionLayoutState;
 }
 

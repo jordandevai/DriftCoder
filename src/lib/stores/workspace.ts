@@ -44,6 +44,12 @@ function createInitialLayoutState(): SessionLayoutState {
 	};
 }
 
+function nextTerminalOrdinal(session: Session): number {
+	const ordinals = session.terminalOrdinals ?? {};
+	const max = Object.values(ordinals).reduce((m, n) => (Number.isFinite(n) ? Math.max(m, n) : m), 0);
+	return max + 1;
+}
+
 const initialState: WorkspaceState = {
 	sessions: new Map(),
 	activeSessionId: null,
@@ -85,7 +91,8 @@ function createWorkspaceStore() {
 				nextSessions.set(id, {
 					...session,
 					connectionStatus: 'disconnected',
-					connectionDetail: session.connectionDetail ?? 'Restored session (reconnect required)'
+					connectionDetail: session.connectionDetail ?? 'Restored session (reconnect required)',
+					terminalOrdinals: session.terminalOrdinals ?? {}
 				});
 			}
 
@@ -163,6 +170,7 @@ function createWorkspaceStore() {
 					expandedPaths: new Set([projectRoot])
 				},
 				terminalIds: [],
+				terminalOrdinals: {},
 				layoutState: createInitialLayoutState()
 			};
 
@@ -408,7 +416,11 @@ function createWorkspaceStore() {
 				const newSessions = new Map(s.sessions);
 				newSessions.set(sessionId, {
 					...session,
-					terminalIds: [...session.terminalIds, terminalId]
+					terminalIds: [...session.terminalIds, terminalId],
+					terminalOrdinals: {
+						...(session.terminalOrdinals ?? {}),
+						[terminalId]: (session.terminalOrdinals ?? {})[terminalId] ?? nextTerminalOrdinal(session)
+					}
 				});
 				return { ...s, sessions: newSessions };
 			});
@@ -422,10 +434,14 @@ function createWorkspaceStore() {
 				const session = s.sessions.get(sessionId);
 				if (!session) return s;
 
+				const nextOrdinals = { ...(session.terminalOrdinals ?? {}) };
+				delete nextOrdinals[terminalId];
+
 				const newSessions = new Map(s.sessions);
 				newSessions.set(sessionId, {
 					...session,
-					terminalIds: session.terminalIds.filter((id) => id !== terminalId)
+					terminalIds: session.terminalIds.filter((id) => id !== terminalId),
+					terminalOrdinals: nextOrdinals
 				});
 				return { ...s, sessions: newSessions };
 			});

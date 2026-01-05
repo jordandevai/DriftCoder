@@ -28,6 +28,12 @@ function projectSlugFromRoot(projectRoot: string): string {
 	return sanitizeTmuxToken(base.toLowerCase()) || 'project';
 }
 
+function computeNextTerminalOrdinal(existing: Record<string, number> | undefined): number {
+	const ordinals = existing ?? {};
+	const max = Object.values(ordinals).reduce((m, n) => (Number.isFinite(n) ? Math.max(m, n) : m), 0);
+	return max + 1;
+}
+
 function buildStartupCommandForTerminal(sessionId: string, terminalId: string): string | null {
 	const settings = get(settingsStore);
 	if (settings.terminalSessionPersistence !== 'tmux') return null;
@@ -42,16 +48,27 @@ function buildStartupCommandForTerminal(sessionId: string, terminalId: string): 
 	const suffix = fnv1aHash36(identity).slice(0, 6) || '000000';
 	const projectSlug = projectSlugFromRoot(projectRoot);
 	const tmuxSession = `${prefix}-${projectSlug}-${suffix}`;
-	const window = `t-${sanitizeTmuxToken(terminalId.slice(0, 8)) || 'term'}`;
+	const ordinal =
+		session?.terminalOrdinals?.[terminalId] ?? computeNextTerminalOrdinal(session?.terminalOrdinals);
+	const window = `term${ordinal}`;
+	const legacyWindow = `t-${sanitizeTmuxToken(terminalId.slice(0, 8)) || 'term'}`;
 
 	// One tmux session per project + one tmux window per DriftCoder terminal tab.
 	// Guard against nesting: if the user is already inside tmux ($TMUX set), do nothing.
 	return (
 		`if [ -z "$TMUX" ] && command -v tmux >/dev/null 2>&1; then ` +
-		`session="${tmuxSession}"; window="${window}"; ` +
-		`tmux has-session -t "$session" 2>/dev/null || tmux new-session -d -s "$session" -n "$window"; ` +
+		`session="${tmuxSession}"; window="${window}"; legacy="${legacyWindow}"; ` +
+		`if ! tmux has-session -t "$session" 2>/dev/null; then ` +
+		`tmux new-session -d -s "$session" -n "$window" -c "$PWD"; ` +
+		`else ` +
+		`if ! tmux list-windows -t "$session" -F "#{window_name}" 2>/dev/null | grep -Fxq "$window"; then ` +
+		`if tmux list-windows -t "$session" -F "#{window_name}" 2>/dev/null | grep -Fxq "$legacy"; then ` +
+		`tmux rename-window -t "$session:$legacy" "$window" 2>/dev/null || true; ` +
+		`fi; ` +
 		`tmux list-windows -t "$session" -F "#{window_name}" 2>/dev/null | grep -Fxq "$window" || tmux new-window -t "$session" -n "$window" -c "$PWD"; ` +
-		`exec tmux attach -t "$session:$window"; ` +
+		`fi; ` +
+		`fi; ` +
+		`tmux attach -t "$session:$window"; ` +
 		`fi`
 	);
 }
@@ -114,6 +131,38 @@ function createTerminalStore() {
 		subscribe,
 
 		/**
+		 * Hydrate the terminal registry from the persisted workspace session state.
+		 * This is required so reconnect can reopen terminals after an app restart.
+		 */
+		hydrateFromWorkspace(): void {
+			const ws = get(workspaceStore);
+			const next = new Map<string, TerminalSession>();
+
+			for (const session of ws.sessions.values()) {
+				const titleByTerminalId = new Map<string, string>();
+				for (const group of session.layoutState.groups.values()) {
+					for (const panel of group.panels) {
+						if (panel.type !== 'terminal' || !panel.terminalId) continue;
+						titleByTerminalId.set(panel.terminalId, panel.title || 'Terminal');
+					}
+				}
+
+				for (const terminalId of session.terminalIds) {
+					next.set(terminalId, {
+						id: terminalId,
+						title: titleByTerminalId.get(terminalId) ?? 'Terminal',
+						sessionId: session.id
+					});
+				}
+			}
+
+			update((s) => {
+				if (next.size === 0 && s.allTerminals.size === 0) return s;
+				return { ...s, allTerminals: next };
+			});
+		},
+
+		/**
 		 * Create a new terminal for the active session
 		 */
 		async createTerminal(): Promise<string> {
@@ -153,7 +202,7 @@ function createTerminalStore() {
 				return { ...s, allTerminals: newTerminals };
 			});
 
-			// Register with workspace session
+			// Register with workspace session (persists across app restart).
 			workspaceStore.addTerminalToSession(sessionId, terminalId);
 
 			// Add panel to the session's layout

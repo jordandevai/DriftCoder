@@ -126,7 +126,10 @@ function deserializeWorkspace(persisted: PersistedWorkspace): WorkspaceState {
 		sessions.set(session.id, {
 			...session,
 			fileState,
-			layoutState
+			layoutState,
+			terminalOrdinals:
+				session.terminalOrdinals ??
+				Object.fromEntries((session.terminalIds ?? []).map((id, idx) => [id, idx + 1]))
 		});
 	}
 
