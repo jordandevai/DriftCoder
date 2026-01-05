@@ -15,7 +15,8 @@ use trace::{emit_trace, is_trace_enabled, TraceEvent};
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     diagnostics::install_panic_hook();
-    env_logger::init();
+    // Avoid crashing if a logger was already installed by the runtime/platform.
+    let _ = env_logger::try_init();
 
     let app_state = Arc::new(Mutex::new(AppState::new()));
 

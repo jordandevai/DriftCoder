@@ -14,7 +14,12 @@ class ConnectionPersistenceService : Service() {
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    startForeground(NOTIFICATION_ID, buildNotification())
+    try {
+      startForeground(NOTIFICATION_ID, buildNotification())
+    } catch (_: Exception) {
+      // If notification construction fails for any reason, do not crash the app process.
+      stopSelf()
+    }
     return START_NOT_STICKY
   }
 
@@ -33,20 +38,22 @@ class ConnectionPersistenceService : Service() {
         null
       }
 
-    val disconnectActivityIntent =
-      Intent(launchIntent).apply {
-        action = ACTION_DISCONNECT_ALL
-        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-      }
     val disconnectPending =
-      PendingIntent.getActivity(
-        this,
-        1,
-        disconnectActivityIntent,
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-      )
+      launchIntent?.let {
+        val disconnectActivityIntent =
+          Intent(it).apply {
+            action = ACTION_DISCONNECT_ALL
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+          }
+        PendingIntent.getActivity(
+          this,
+          1,
+          disconnectActivityIntent,
+          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+      }
 
-    return NotificationCompat.Builder(this, CHANNEL_ID)
+    val builder = NotificationCompat.Builder(this, CHANNEL_ID)
       .setContentTitle("DriftCode running in BG")
       .setContentText("Keeping SSH sessions alive")
       .setSmallIcon(android.R.drawable.stat_sys_upload)
@@ -55,14 +62,16 @@ class ConnectionPersistenceService : Service() {
       .setOnlyAlertOnce(true)
       .setCategory(android.app.Notification.CATEGORY_SERVICE)
       .setContentIntent(contentIntent)
-      .addAction(
+    if (disconnectPending != null) {
+      builder.addAction(
         NotificationCompat.Action.Builder(
           android.R.drawable.ic_menu_close_clear_cancel,
           "Disconnect",
           disconnectPending
         ).build()
       )
-      .build()
+    }
+    return builder.build()
   }
 
   private fun ensureChannel() {
