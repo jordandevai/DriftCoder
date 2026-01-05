@@ -44,7 +44,7 @@ DriftCode is **source-available**, not open-source.
 ## Development
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 18+ (CI uses the version in `.nvmrc`)
 - Rust 1.77+
 - Platform-specific Tauri dependencies  
   https://v2.tauri.app/start/prerequisites/

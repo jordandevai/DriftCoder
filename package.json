@@ -4,6 +4,7 @@
   "description": "Lightweight SSH-based code editor",
   "author": "Jordan Gonzales (Jtech Minds LLC) <https://jtechminds.com> (https://driftcoder.com)",
   "type": "module",
+  "packageManager": "npm@11.6.2",
   "scripts": {
     "dev": "svelte-kit sync && vite dev",
     "build": "svelte-kit sync && vite build",
