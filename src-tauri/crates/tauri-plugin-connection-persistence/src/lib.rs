@@ -68,6 +68,16 @@ impl<R: Runtime> ConnectionPersistence<R> {
     pub async fn consume_disconnect_request(&self) -> Result<bool> {
         Ok(false)
     }
+
+    #[cfg(target_os = "android")]
+    pub async fn set_active(&self, active: bool) -> Result<()> {
+        self.0.set_active(active).await
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub async fn set_active(&self, _active: bool) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Initializes the plugin.

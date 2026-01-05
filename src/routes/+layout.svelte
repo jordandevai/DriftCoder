@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { get } from 'svelte/store';
 	import '../app.css';
 	import { connectionStore } from '$stores/connection';
 	import { debugStore } from '$stores/debug';
@@ -31,35 +30,17 @@
 				console.warn('Failed to consume android disconnect request:', e);
 			});
 
-		let running = false;
-		const sync = async () => {
-			const shouldRun = document.hidden && get(hasSessions);
-			if (shouldRun === running) return;
-			running = shouldRun;
-			try {
-				if (shouldRun) await invoke('android_persistence_start');
-				else await invoke('android_persistence_stop');
-			} catch (e) {
-				console.warn('Android background persistence toggle failed:', e);
-			}
-		};
-
-		const onVisibility = () => {
-			void sync();
-		};
-
-		document.addEventListener('visibilitychange', onVisibility);
-		const unsub = hasSessions.subscribe(() => {
-			void sync();
+		// Tell native layer whether we have open projects; the Android plugin uses this to decide
+		// whether to run the Foreground Service when the activity is backgrounded.
+		const unsub = hasSessions.subscribe((active) => {
+			void invoke('android_persistence_set_active', { active }).catch((e) => {
+				console.warn('Failed to set android persistence active:', e);
+			});
 		});
 
-		void sync();
-
 		return () => {
-			document.removeEventListener('visibilitychange', onVisibility);
 			unsub();
-			// Best-effort: stop the service when the webview is torn down.
-			void invoke('android_persistence_stop').catch(() => {});
+			void invoke('android_persistence_set_active', { active: false }).catch(() => {});
 		};
 	});
 </script>

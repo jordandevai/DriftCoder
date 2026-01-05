@@ -41,6 +41,7 @@ pub fn run() {
             commands::android_persistence::android_persistence_start,
             commands::android_persistence::android_persistence_stop,
             commands::android_persistence::android_persistence_consume_disconnect_request,
+            commands::android_persistence::android_persistence_set_active,
             // Connection commands
             commands::connection::ssh_connect,
             commands::connection::ssh_reconnect,

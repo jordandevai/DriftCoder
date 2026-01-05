@@ -3,11 +3,18 @@ package app.tauri.connectionpersistence
 import android.app.Activity
 import android.content.Intent
 import androidx.core.content.ContextCompat
+import app.tauri.Logger
 import app.tauri.annotation.Command
+import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+
+@InvokeArg
+class ActiveArgs {
+  var active: Boolean = false
+}
 
 @TauriPlugin
 class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activity) {
@@ -31,8 +38,27 @@ class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activ
     captureDisconnectIntent(intent)
   }
 
+  override fun onPause() {
+    // Activity is leaving foreground; if there are active sessions, start the FGS to keep sockets alive.
+    val active = prefs().getBoolean(KEY_ACTIVE, false)
+    if (!active) return
+    try {
+      val intent = Intent(activity, ConnectionPersistenceService::class.java)
+      ContextCompat.startForegroundService(activity, intent)
+    } catch (e: Exception) {
+      Logger.error("Failed to start background persistence service: ${e.message}")
+    }
+  }
+
   override fun onResume() {
     captureDisconnectIntent(activity.intent)
+    // Always stop the FGS when returning to foreground.
+    try {
+      val intent = Intent(activity, ConnectionPersistenceService::class.java)
+      activity.stopService(intent)
+    } catch (_: Exception) {
+      // ignore
+    }
   }
 
   @Command
@@ -58,6 +84,17 @@ class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activ
   }
 
   @Command
+  fun setActive(invoke: Invoke) {
+    try {
+      val args = invoke.parseArgs(ActiveArgs::class.java)
+      prefs().edit().putBoolean(KEY_ACTIVE, args.active).apply()
+      invoke.resolve(JSObject())
+    } catch (e: Exception) {
+      invoke.reject(e.message ?: "Failed to update background persistence state")
+    }
+  }
+
+  @Command
   fun consumeDisconnectRequest(invoke: Invoke) {
     try {
       val p = prefs()
@@ -76,6 +113,7 @@ class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activ
   companion object {
     private const val PREFS_NAME = "driftcode_connection_persistence"
     private const val KEY_DISCONNECT_REQUESTED = "disconnect_requested"
+    private const val KEY_ACTIVE = "active"
     private const val ACTION_DISCONNECT_ALL = "app.tauri.connectionpersistence.action.DISCONNECT_ALL"
   }
 }
