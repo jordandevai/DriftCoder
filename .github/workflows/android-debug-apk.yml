@@ -75,6 +75,11 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           echo "NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
 
+      - name: Node/npm versions
+        run: |
+          node -v
+          npm -v
+
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
