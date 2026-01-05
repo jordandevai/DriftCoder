@@ -945,6 +945,7 @@ dependencies = [
  "ssh-key",
  "tauri",
  "tauri-build",
+ "tauri-plugin-connection-persistence",
  "tauri-plugin-shell",
  "tauri-plugin-store",
  "thiserror 2.0.17",
@@ -4556,6 +4557,16 @@ dependencies = [
  "tauri-utils",
  "toml 0.9.10+spec-1.1.0",
  "walkdir",
+]
+
+[[package]]
+name = "tauri-plugin-connection-persistence"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

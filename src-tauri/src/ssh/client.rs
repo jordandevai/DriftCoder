@@ -20,7 +20,7 @@ use std::time::Duration;
 use tauri::AppHandle;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
-use tokio::net::{lookup_host, TcpStream};
+use tokio::net::{lookup_host, TcpSocket, TcpStream};
 use tokio::sync::{Mutex, watch};
 use uuid::Uuid;
 
@@ -528,9 +528,21 @@ impl SshConnection {
                     false,
                 );
 
-                let socket = match tokio::time::timeout(Duration::from_secs(8), TcpStream::connect(addr))
-                    .await
-                {
+                let socket = match tokio::time::timeout(Duration::from_secs(8), async {
+                    let socket = match addr {
+                        SocketAddr::V4(_) => TcpSocket::new_v4(),
+                        SocketAddr::V6(_) => TcpSocket::new_v6(),
+                    }
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+                    // Reduces latency for interactive use.
+                    let _ = socket.set_nodelay(true);
+                    // Helps reduce NAT / Wi‑Fi idle drops (especially on mobile networks).
+                    let _ = socket.set_keepalive(true);
+
+                    socket.connect(addr).await
+                })
+                .await {
                     Ok(Ok(s)) => {
                         trace_attempt("tcp", "connected", &format!("TCP connected to {}", addr), None, false);
                         s
@@ -597,8 +609,6 @@ impl SshConnection {
                         break; // TCP timeout, try next address
                     }
                 };
-
-                let _ = socket.set_nodelay(true);
 
                 trace_attempt(
                     "ssh",

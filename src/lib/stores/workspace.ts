@@ -242,6 +242,22 @@ function createWorkspaceStore() {
 		},
 
 		/**
+		 * Close all sessions (projects).
+		 * Used for global disconnect flows (e.g., Android FGS notification action).
+		 */
+		async closeAllSessions(): Promise<void> {
+			const state = get({ subscribe });
+			const ids = [...state.sessionOrder];
+			for (const id of ids) {
+				try {
+					await this.closeSession(id);
+				} catch (e) {
+					console.error(`Failed to close session ${id}:`, e);
+				}
+			}
+		},
+
+		/**
 		 * Drop all sessions that depend on a connection (used when the backend reports a disconnect).
 		 * This is intentionally a local-state operation; it does not attempt to disconnect or clean up
 		 * remote resources because the connection is already gone.

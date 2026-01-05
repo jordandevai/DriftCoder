@@ -21,6 +21,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_connection_persistence::init())
         .manage(app_state)
         .setup(|app| {
             // Set window icon for Linux dev mode (production builds use bundle icons)
@@ -36,6 +37,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // Android lifecycle persistence
+            commands::android_persistence::android_persistence_start,
+            commands::android_persistence::android_persistence_stop,
+            commands::android_persistence::android_persistence_consume_disconnect_request,
             // Connection commands
             commands::connection::ssh_connect,
             commands::connection::ssh_reconnect,
