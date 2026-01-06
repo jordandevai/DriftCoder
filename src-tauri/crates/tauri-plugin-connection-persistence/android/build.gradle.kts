@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "app.tauri.connectionpersistence"
-    compileSdk = 36
+    compileSdk = 34
 
     defaultConfig {
         minSdk = 24
@@ -38,4 +38,3 @@ dependencies {
     implementation("com.google.android.material:material:1.7.0")
     implementation(project(":tauri-android"))
 }
-

@@ -2,6 +2,11 @@
 name = "tauri-plugin-connection-persistence"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
+links = "tauri-plugin-connection-persistence"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
 
 [dependencies]
 tauri = { version = "2" }
