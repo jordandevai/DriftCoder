@@ -24,9 +24,19 @@ const defaultSettings: SettingsState = {
 	terminalScrollback: 50_000,
 	terminalSessionPersistence: 'none',
 	terminalTmuxSessionPrefix: 'driftcoder',
+	clientInstanceId: '',
 	themeMode: 'dark',
 	themeOverrides: {}
 };
+
+function ensureClientInstanceId(settings: SettingsState): SettingsState {
+	if (settings.clientInstanceId) return settings;
+	if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+		return { ...settings, clientInstanceId: crypto.randomUUID() };
+	}
+	// Fallback: deterministic-enough for our purposes if randomUUID is unavailable.
+	return { ...settings, clientInstanceId: String(Date.now()) + Math.random().toString(16).slice(2) };
+}
 
 function createSettingsStore() {
 	const { subscribe, set, update } = writable<SettingsState>(defaultSettings);
@@ -89,8 +99,8 @@ function createSettingsStore() {
 					...defaultSettings,
 					terminalSessionPersistence: coarsePointer ? 'tmux' : defaultSettings.terminalSessionPersistence
 				};
-				if (loaded) set({ ...mobileDefault, ...loaded });
-				else set(mobileDefault);
+				const merged = loaded ? ({ ...mobileDefault, ...loaded } as SettingsState) : mobileDefault;
+				set(ensureClientInstanceId(merged));
 
 				// Persist changes (debounced) after init completes.
 				unsubscribePersist = subscribe((s) => schedulePersist(s));

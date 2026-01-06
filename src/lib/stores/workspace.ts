@@ -443,6 +443,52 @@ function createWorkspaceStore() {
 		},
 
 		/**
+		 * Reserve a stable ordinal for a terminal ID before the backend terminal is created.
+		 * Prevents races where multiple terminals compute the same "next ordinal" and end up
+		 * attaching to the same tmux window (e.g. two rapid "New Terminal" actions).
+		 */
+		reserveTerminalOrdinal(sessionId: string, terminalId: string): number {
+			const state = get({ subscribe });
+			const session = state.sessions.get(sessionId);
+			if (!session) return 1;
+
+			const existing = session.terminalOrdinals?.[terminalId];
+			if (existing) return existing;
+
+			const ordinal = nextTerminalOrdinal(session);
+			update((s) => {
+				const current = s.sessions.get(sessionId);
+				if (!current) return s;
+				const ordinals = { ...(current.terminalOrdinals ?? {}) };
+				ordinals[terminalId] = ordinals[terminalId] ?? ordinal;
+				const nextSessions = new Map(s.sessions);
+				nextSessions.set(sessionId, { ...current, terminalOrdinals: ordinals });
+				return { ...s, sessions: nextSessions };
+			});
+			return ordinal;
+		},
+
+		/**
+		 * Undo a reservation if terminal creation fails.
+		 */
+		releaseTerminalOrdinal(sessionId: string, terminalId: string): void {
+			update((s) => {
+				const session = s.sessions.get(sessionId);
+				if (!session) return s;
+				if (!session.terminalOrdinals?.[terminalId]) return s;
+				// If the terminal is already fully registered, don't remove the ordinal.
+				if (session.terminalIds.includes(terminalId)) return s;
+
+				const nextOrdinals = { ...(session.terminalOrdinals ?? {}) };
+				delete nextOrdinals[terminalId];
+
+				const newSessions = new Map(s.sessions);
+				newSessions.set(sessionId, { ...session, terminalOrdinals: nextOrdinals });
+				return { ...s, sessions: newSessions };
+			});
+		},
+
+		/**
 		 * Remove a terminal ID from a session
 		 */
 		removeTerminalFromSession(sessionId: string, terminalId: string): void {

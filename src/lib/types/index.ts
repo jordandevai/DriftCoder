@@ -107,6 +107,11 @@ export interface SettingsState {
 	terminalScrollback: number;
 	terminalSessionPersistence: 'none' | 'tmux';
 	terminalTmuxSessionPrefix: string;
+	/**
+	 * Stable per-install identifier used to prevent tmux session name collisions across devices.
+	 * Internal-only (not shown in UI).
+	 */
+	clientInstanceId: string;
 	themeMode: 'dark' | 'light' | 'system';
 	themeOverrides: {
 		dark?: {

@@ -38,6 +38,7 @@ function buildStartupCommandForTerminal(sessionId: string, terminalId: string): 
 	const settings = get(settingsStore);
 	if (settings.terminalSessionPersistence !== 'tmux') return null;
 	const prefix = sanitizeTmuxToken(settings.terminalTmuxSessionPrefix || 'driftcoder') || 'driftcoder';
+	const clientSuffix = sanitizeTmuxToken(settings.clientInstanceId || '').slice(0, 6) || 'client';
 	const ws = get(workspaceStore);
 	const session = ws.sessions.get(sessionId);
 	const projectRoot = session?.projectRoot || '';
@@ -47,7 +48,8 @@ function buildStartupCommandForTerminal(sessionId: string, terminalId: string): 
 		: `${projectRoot}`;
 	const suffix = fnv1aHash36(identity).slice(0, 6) || '000000';
 	const projectSlug = projectSlugFromRoot(projectRoot);
-	const tmuxSession = `${prefix}-${projectSlug}-${suffix}`;
+	// Include a stable per-install suffix to avoid multiple devices attaching to the same tmux session by default.
+	const tmuxSession = `${prefix}-${projectSlug}-${suffix}-${clientSuffix}`;
 	const ordinal =
 		session?.terminalOrdinals?.[terminalId] ?? computeNextTerminalOrdinal(session?.terminalOrdinals);
 	const window = `term${ordinal}`;
@@ -173,15 +175,23 @@ function createTerminalStore() {
 			const sessionId = session.id;
 
 			const requestedTerminalId = crypto.randomUUID();
+			// Reserve ordinal up-front to avoid tmux window collisions when multiple terminals are created rapidly.
+			workspaceStore.reserveTerminalOrdinal(sessionId, requestedTerminalId);
 			const tmuxOk = await ensureTmuxAvailable(session.connectionId);
 			if (!tmuxOk) warnTmuxMissingOnce(session.connectionId, sessionId);
 
-			const terminalId = await invoke<string>('terminal_create', {
-				connId: session.connectionId,
-				workingDir: session.projectRoot,
-				termId: requestedTerminalId,
-				startupCommand: tmuxOk ? buildStartupCommandForTerminal(sessionId, requestedTerminalId) : null
-			});
+			let terminalId: string;
+			try {
+				terminalId = await invoke<string>('terminal_create', {
+					connId: session.connectionId,
+					workingDir: session.projectRoot,
+					termId: requestedTerminalId,
+					startupCommand: tmuxOk ? buildStartupCommandForTerminal(sessionId, requestedTerminalId) : null
+				});
+			} catch (e) {
+				workspaceStore.releaseTerminalOrdinal(sessionId, requestedTerminalId);
+				throw e;
+			}
 
 			// Count existing terminals for this session for naming
 			const state = get({ subscribe });
