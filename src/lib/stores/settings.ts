@@ -23,7 +23,7 @@ const defaultSettings: SettingsState = {
 	autosaveDelay: 1000,
 	terminalScrollback: 50_000,
 	terminalSessionPersistence: 'none',
-	terminalTmuxSessionPrefix: 'driftcoder',
+	terminalTmuxSessionPrefix: 'dc',
 	clientInstanceId: '',
 	themeMode: 'dark',
 	themeOverrides: {}

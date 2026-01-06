@@ -37,8 +37,7 @@ function computeNextTerminalOrdinal(existing: Record<string, number> | undefined
 function buildStartupCommandForTerminal(sessionId: string, terminalId: string): string | null {
 	const settings = get(settingsStore);
 	if (settings.terminalSessionPersistence !== 'tmux') return null;
-	const prefix = sanitizeTmuxToken(settings.terminalTmuxSessionPrefix || 'driftcoder') || 'driftcoder';
-	const clientSuffix = sanitizeTmuxToken(settings.clientInstanceId || '').slice(0, 6) || 'client';
+	const prefix = sanitizeTmuxToken(settings.terminalTmuxSessionPrefix || 'dc') || 'dc';
 	const ws = get(workspaceStore);
 	const session = ws.sessions.get(sessionId);
 	const projectRoot = session?.projectRoot || '';
@@ -50,18 +49,15 @@ function buildStartupCommandForTerminal(sessionId: string, terminalId: string): 
 	const projectSlug = projectSlugFromRoot(projectRoot);
 	const ordinal =
 		session?.terminalOrdinals?.[terminalId] ?? computeNextTerminalOrdinal(session?.terminalOrdinals);
-	// Use one tmux session per DriftCoder terminal tab (not one session per project).
-	// Reason: tmux session state (current window) is shared across clients; if multiple DriftCoder tabs attach
-	// to the same tmux session, switching windows in one tab will change the other tab's screen.
-	// Session-per-tab allows power users to manage windows/panes inside tmux without affecting other tabs.
-	const window = `term${ordinal}`;
-	const tmuxSession = `${prefix}-${projectSlug}-${suffix}-${clientSuffix}-t${ordinal}`;
+	// Use one tmux session per DriftCoder terminal tab so tabs never "steal" each other's screen state.
+	// Keep the session name deterministic so a different device (or a reinstall) can reattach automatically.
+	const tmuxSession = `${prefix}-${projectSlug}-${suffix}-term${ordinal}`;
 
 	// Guard against nesting: if the user is already inside tmux ($TMUX set), switch-client instead of attach.
 	return (
 		`if command -v tmux >/dev/null 2>&1; then ` +
 		`session="${tmuxSession}"; ` +
-		`tmux has-session -t "$session" 2>/dev/null || tmux new-session -d -s "$session" -n "${window}" -c "$PWD"; ` +
+		`tmux has-session -t "$session" 2>/dev/null || tmux new-session -d -s "$session" -c "$PWD"; ` +
 		// Make tmux presence obvious by ensuring the session status line is enabled for DriftCode-managed sessions.
 		`tmux set-option -t "$session" status on 2>/dev/null || true; ` +
 		`if [ -n "$TMUX" ]; then tmux switch-client -t "$session"; else tmux attach -t "$session"; fi; ` +
@@ -195,7 +191,7 @@ function createTerminalStore() {
 			const settings = get(settingsStore);
 			const title =
 				settings.terminalSessionPersistence === 'tmux' && tmuxOk
-					? `term${reservedOrdinal} (tmux)`
+					? `term${reservedOrdinal}`
 					: `Terminal ${sessionTerminalCount + 1}`;
 
 			const terminalSession: TerminalSession = {
