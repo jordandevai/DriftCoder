@@ -62,7 +62,8 @@ function buildStartupCommandForTerminal(sessionId: string, terminalId: string): 
 		`if command -v tmux >/dev/null 2>&1; then ` +
 		`session="${tmuxSession}"; ` +
 		`tmux has-session -t "$session" 2>/dev/null || tmux new-session -d -s "$session" -n "${window}" -c "$PWD"; ` +
-		`tmux set-option -t "$session" status off 2>/dev/null || true; ` +
+		// Make tmux presence obvious by ensuring the session status line is enabled for DriftCode-managed sessions.
+		`tmux set-option -t "$session" status on 2>/dev/null || true; ` +
 		`if [ -n "$TMUX" ]; then tmux switch-client -t "$session"; else tmux attach -t "$session"; fi; ` +
 		`fi`
 	);
@@ -193,7 +194,9 @@ function createTerminalStore() {
 			).length;
 			const settings = get(settingsStore);
 			const title =
-				settings.terminalSessionPersistence === 'tmux' ? `term${reservedOrdinal}` : `Terminal ${sessionTerminalCount + 1}`;
+				settings.terminalSessionPersistence === 'tmux' && tmuxOk
+					? `term${reservedOrdinal} (tmux)`
+					: `Terminal ${sessionTerminalCount + 1}`;
 
 			const terminalSession: TerminalSession = {
 				id: terminalId,
