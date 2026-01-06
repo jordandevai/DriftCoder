@@ -48,29 +48,20 @@ function buildStartupCommandForTerminal(sessionId: string, terminalId: string): 
 		: `${projectRoot}`;
 	const suffix = fnv1aHash36(identity).slice(0, 6) || '000000';
 	const projectSlug = projectSlugFromRoot(projectRoot);
-	// Include a stable per-install suffix to avoid multiple devices attaching to the same tmux session by default.
-	const tmuxSession = `${prefix}-${projectSlug}-${suffix}-${clientSuffix}`;
 	const ordinal =
 		session?.terminalOrdinals?.[terminalId] ?? computeNextTerminalOrdinal(session?.terminalOrdinals);
-	const window = `term${ordinal}`;
-	const legacyWindow = `t-${sanitizeTmuxToken(terminalId.slice(0, 8)) || 'term'}`;
+	// Use one tmux session per DriftCoder terminal tab (not one session per project).
+	// Reason: tmux session state (current window) is shared across clients; if multiple DriftCoder tabs attach
+	// to the same tmux session, switching windows in one tab will change the other tab's screen.
+	// Session-per-tab allows power users to manage windows/panes inside tmux without affecting other tabs.
+	const tmuxSession = `${prefix}-${projectSlug}-${suffix}-${clientSuffix}-term${ordinal}`;
 
-	// One tmux session per project + one tmux window per DriftCoder terminal tab.
-	// Guard against nesting: if the user is already inside tmux ($TMUX set), do nothing.
+	// Guard against nesting: if the user is already inside tmux ($TMUX set), switch-client instead of attach.
 	return (
-		`if [ -z "$TMUX" ] && command -v tmux >/dev/null 2>&1; then ` +
-		`session="${tmuxSession}"; window="${window}"; legacy="${legacyWindow}"; ` +
-		`if ! tmux has-session -t "$session" 2>/dev/null; then ` +
-		`tmux new-session -d -s "$session" -n "$window" -c "$PWD"; ` +
-		`else ` +
-		`if ! tmux list-windows -t "$session" -F "#{window_name}" 2>/dev/null | grep -Fxq "$window"; then ` +
-		`if tmux list-windows -t "$session" -F "#{window_name}" 2>/dev/null | grep -Fxq "$legacy"; then ` +
-		`tmux rename-window -t "$session:$legacy" "$window" 2>/dev/null || true; ` +
-		`fi; ` +
-		`tmux list-windows -t "$session" -F "#{window_name}" 2>/dev/null | grep -Fxq "$window" || tmux new-window -t "$session" -n "$window" -c "$PWD"; ` +
-		`fi; ` +
-		`fi; ` +
-		`tmux attach -t "$session:$window"; ` +
+		`if command -v tmux >/dev/null 2>&1; then ` +
+		`session="${tmuxSession}"; ` +
+		`tmux has-session -t "$session" 2>/dev/null || tmux new-session -d -s "$session" -c "$PWD"; ` +
+		`if [ -n "$TMUX" ]; then tmux switch-client -t "$session"; else tmux attach -t "$session"; fi; ` +
 		`fi`
 	);
 }
