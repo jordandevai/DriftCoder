@@ -27,6 +27,7 @@
 	let writeErrorNotified = false;
 	let resizeErrorNotified = false;
 	let ptyDisconnected = $state(false);
+	let scrolledBack = $state(false);
 	const scrollback = $derived($settingsStore.terminalScrollback ?? 50_000);
 	const themeMode = $derived($settingsStore.themeMode);
 	const themeOverrides = $derived($settingsStore.themeOverrides);
@@ -85,6 +86,19 @@
 		terminal.options.theme = getTerminalThemeFromCss();
 		terminal.options.minimumContrastRatio = getTerminalMinimumContrastRatioFromCss();
 		if (terminal.rows > 0) terminal.refresh(0, terminal.rows - 1);
+	}
+
+	function updateScrolledBack(): void {
+		if (!terminal) return;
+		const buf = terminal.buffer.active;
+		scrolledBack = buf.viewportY < buf.baseY;
+	}
+
+	function jumpToBottom(): void {
+		if (!terminal) return;
+		terminal.scrollToBottom();
+		updateScrolledBack();
+		queueMicrotask(() => terminal?.focus());
 	}
 
 	function startThemeObserver(): void {
@@ -185,10 +199,15 @@
 		// Fit after the element is laid out; this also triggers the initial onResize so backend sees correct cols/rows.
 		requestAnimationFrame(() => {
 			safeFit();
+			updateScrolledBack();
 			if (active) {
 				// Focus the terminal input when first created (especially important on mobile/keyboard-driven workflows).
 				terminal?.focus();
 			}
+		});
+
+		terminal.onScroll(() => {
+			updateScrolledBack();
 		});
 
 		// Listen for terminal output
@@ -196,6 +215,10 @@
 			if (event.terminal_id === terminalId && terminal) {
 				const bytes = new Uint8Array(event.data);
 				terminal.write(bytes);
+				// If the user isn't reviewing history, keep the view pinned to the live bottom output.
+				if (!scrolledBack) {
+					terminal.scrollToBottom();
+				}
 			}
 		})) as () => void;
 
@@ -220,6 +243,7 @@
 		queueMicrotask(() => {
 			try {
 				fitAddon?.fit();
+				updateScrolledBack();
 				terminal?.focus();
 			} catch {
 				// ignore focus/fit errors
@@ -253,6 +277,14 @@
 <div class="h-full w-full p-1" style="background-color: rgb(var(--c-terminal-background));">
 	<div class="relative h-full w-full">
 		<div bind:this={terminalContainer} class="h-full w-full"></div>
+		{#if scrolledBack && !connectionDown && !ptyDisconnected}
+			<button
+				class="absolute bottom-2 right-2 z-10 rounded bg-white/10 px-2 py-1 text-[11px] text-gray-100 hover:bg-white/20 transition-colors"
+				onclick={jumpToBottom}
+			>
+				Jump to bottom
+			</button>
+		{/if}
 		{#if connectionDown || ptyDisconnected}
 			<div class="absolute left-2 right-2 top-2 z-10 pointer-events-auto">
 				<div class="flex items-center justify-between gap-2 rounded border border-panel-border bg-panel-bg/95 px-3 py-2 text-xs text-gray-100 shadow">
