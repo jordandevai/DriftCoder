@@ -58,7 +58,6 @@ class ConnectionPersistenceService : Service() {
       .setContentText("Keeping SSH sessions alive")
       .setSmallIcon(android.R.drawable.stat_sys_upload)
       .setOngoing(true)
-      .setSilent(true)
       .setOnlyAlertOnce(true)
       .setCategory(android.app.Notification.CATEGORY_SERVICE)
       .setContentIntent(contentIntent)
@@ -82,12 +81,9 @@ class ConnectionPersistenceService : Service() {
     val channel = NotificationChannel(
       CHANNEL_ID,
       "Connection persistence",
-      NotificationManager.IMPORTANCE_LOW
+      NotificationManager.IMPORTANCE_DEFAULT
     )
     channel.description = "Keeps DriftCode running in the background to maintain SSH connections."
-    channel.setShowBadge(false)
-    channel.enableVibration(false)
-    channel.setSound(null, null)
     channel.lockscreenVisibility = Notification.VISIBILITY_PRIVATE
     mgr.createNotificationChannel(channel)
   }

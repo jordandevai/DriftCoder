@@ -129,13 +129,6 @@
 		terminal.loadAddon(fitAddon);
 		terminal.loadAddon(new WebLinksAddon());
 
-		terminal.open(terminalContainer);
-		fitAddon.fit();
-		if (active) {
-			// Focus the terminal input when first created (especially important on mobile/keyboard-driven workflows).
-			terminal.focus();
-		}
-
 		// Handle user input
 		terminal.onData(async (data) => {
 			if (connectionDown || ptyDisconnected) return;
@@ -163,6 +156,8 @@
 		terminal.onResize(async ({ cols, rows }) => {
 			try {
 				if (connectionDown || ptyDisconnected) return;
+				// Avoid sending 0x0 sizes which can confuse remote TTY apps and cause redraw glitches.
+				if (cols < 2 || rows < 1) return;
 				await invoke('terminal_resize', { termId: terminalId, cols, rows });
 			} catch (error) {
 				console.error('Failed to resize terminal:', error);
@@ -178,6 +173,24 @@
 			}
 		});
 
+		function safeFit(): void {
+			if (!fitAddon || !terminal) return;
+			const dims = fitAddon.proposeDimensions?.();
+			if (!dims) return;
+			if (dims.cols < 2 || dims.rows < 1) return;
+			fitAddon.fit();
+		}
+
+		terminal.open(terminalContainer);
+		// Fit after the element is laid out; this also triggers the initial onResize so backend sees correct cols/rows.
+		requestAnimationFrame(() => {
+			safeFit();
+			if (active) {
+				// Focus the terminal input when first created (especially important on mobile/keyboard-driven workflows).
+				terminal?.focus();
+			}
+		});
+
 		// Listen for terminal output
 		unlisten = (await listen<{ terminal_id: string; data: number[] }>('terminal_output', (event) => {
 			if (event.terminal_id === terminalId && terminal) {
@@ -188,9 +201,7 @@
 
 		// Resize observer
 		resizeObserver = new ResizeObserver(() => {
-			if (fitAddon) {
-				fitAddon.fit();
-			}
+			safeFit();
 		});
 		resizeObserver.observe(terminalContainer);
 

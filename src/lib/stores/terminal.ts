@@ -54,13 +54,15 @@ function buildStartupCommandForTerminal(sessionId: string, terminalId: string): 
 	// Reason: tmux session state (current window) is shared across clients; if multiple DriftCoder tabs attach
 	// to the same tmux session, switching windows in one tab will change the other tab's screen.
 	// Session-per-tab allows power users to manage windows/panes inside tmux without affecting other tabs.
-	const tmuxSession = `${prefix}-${projectSlug}-${suffix}-${clientSuffix}-term${ordinal}`;
+	const window = `term${ordinal}`;
+	const tmuxSession = `${prefix}-${projectSlug}-${suffix}-${clientSuffix}-t${ordinal}`;
 
 	// Guard against nesting: if the user is already inside tmux ($TMUX set), switch-client instead of attach.
 	return (
 		`if command -v tmux >/dev/null 2>&1; then ` +
 		`session="${tmuxSession}"; ` +
-		`tmux has-session -t "$session" 2>/dev/null || tmux new-session -d -s "$session" -c "$PWD"; ` +
+		`tmux has-session -t "$session" 2>/dev/null || tmux new-session -d -s "$session" -n "${window}" -c "$PWD"; ` +
+		`tmux set-option -t "$session" status off 2>/dev/null || true; ` +
 		`if [ -n "$TMUX" ]; then tmux switch-client -t "$session"; else tmux attach -t "$session"; fi; ` +
 		`fi`
 	);
@@ -167,7 +169,7 @@ function createTerminalStore() {
 
 			const requestedTerminalId = crypto.randomUUID();
 			// Reserve ordinal up-front to avoid tmux window collisions when multiple terminals are created rapidly.
-			workspaceStore.reserveTerminalOrdinal(sessionId, requestedTerminalId);
+			const reservedOrdinal = workspaceStore.reserveTerminalOrdinal(sessionId, requestedTerminalId);
 			const tmuxOk = await ensureTmuxAvailable(session.connectionId);
 			if (!tmuxOk) warnTmuxMissingOnce(session.connectionId, sessionId);
 
@@ -189,10 +191,13 @@ function createTerminalStore() {
 			const sessionTerminalCount = Array.from(state.allTerminals.values()).filter(
 				(t) => t.sessionId === session.id
 			).length;
+			const settings = get(settingsStore);
+			const title =
+				settings.terminalSessionPersistence === 'tmux' ? `term${reservedOrdinal}` : `Terminal ${sessionTerminalCount + 1}`;
 
 			const terminalSession: TerminalSession = {
 				id: terminalId,
-				title: `Terminal ${sessionTerminalCount + 1}`,
+				title,
 				sessionId
 			};
 
