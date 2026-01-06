@@ -29,8 +29,10 @@
 
 	const file = $derived($fileStore.openFiles.get(filePath));
 	const wordWrap = $derived($settingsStore.wordWrap);
+	const fontSize = $derived($settingsStore.fontSize ?? 14);
 	const languageCompartment = new Compartment();
 	const wrapCompartment = new Compartment();
+	const fontCompartment = new Compartment();
 
 	// Dark theme
 	const darkTheme = EditorView.theme({
@@ -116,7 +118,13 @@
 				}
 			}),
 			languageCompartment.of([]),
-			wrapCompartment.of(wordWrap ? EditorView.lineWrapping : [])
+			wrapCompartment.of(wordWrap ? EditorView.lineWrapping : []),
+			fontCompartment.of(
+				EditorView.theme({
+					'&': { fontSize: `${fontSize}px` },
+					'.cm-content': { fontSize: `${fontSize}px` }
+				})
+			)
 		];
 
 		const state = EditorState.create({
@@ -249,6 +257,18 @@
 		if (!editorView) return;
 		editorView.dispatch({
 			effects: wrapCompartment.reconfigure(wordWrap ? EditorView.lineWrapping : [])
+		});
+	});
+
+	$effect(() => {
+		if (!editorView) return;
+		editorView.dispatch({
+			effects: fontCompartment.reconfigure(
+				EditorView.theme({
+					'&': { fontSize: `${fontSize}px` },
+					'.cm-content': { fontSize: `${fontSize}px` }
+				})
+			)
 		});
 	});
 </script>

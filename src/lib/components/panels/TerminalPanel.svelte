@@ -29,6 +29,7 @@
 	let ptyDisconnected = $state(false);
 	let scrolledBack = $state(false);
 	const scrollback = $derived($settingsStore.terminalScrollback ?? 50_000);
+	const fontSize = $derived($settingsStore.fontSize ?? 14);
 	const themeMode = $derived($settingsStore.themeMode);
 	const themeOverrides = $derived($settingsStore.themeOverrides);
 	const connectionDown = $derived(connectionStatus !== 'connected');
@@ -46,6 +47,24 @@
 	$effect(() => {
 		if (!terminal) return;
 		terminal.options.scrollback = scrollback;
+	});
+
+	function safeFit(): void {
+		if (!fitAddon || !terminal) return;
+		const dims = fitAddon.proposeDimensions?.();
+		if (!dims) return;
+		if (dims.cols < 2 || dims.rows < 1) return;
+		fitAddon.fit();
+	}
+
+	$effect(() => {
+		if (!terminal) return;
+		terminal.options.fontSize = fontSize;
+		// Changing font size changes rows/cols; refit so the remote PTY gets an updated window size.
+		requestAnimationFrame(() => {
+			safeFit();
+			if (terminal && terminal.rows > 0) terminal.refresh(0, terminal.rows - 1);
+		});
 	});
 
 	function readRootCssVar(name: string): string {
@@ -112,13 +131,6 @@
 		});
 	}
 
-	function getDefaultFontSize(): number {
-		if (typeof window === 'undefined') return 14;
-		// Prefer a larger, more readable default on touch devices / tablets.
-		if (window.matchMedia?.('(pointer: coarse)').matches) return 16;
-		return 14;
-	}
-
 	async function initTerminal() {
 		if (!terminalContainer) return;
 
@@ -132,7 +144,7 @@
 		terminal = new Terminal({
 			cursorBlink: true,
 			fontFamily: 'JetBrains Mono, Fira Code, Consolas, monospace',
-			fontSize: getDefaultFontSize(),
+			fontSize,
 			lineHeight: 1.15,
 			scrollback,
 			minimumContrastRatio: getTerminalMinimumContrastRatioFromCss(),
@@ -186,14 +198,6 @@
 				}
 			}
 		});
-
-		function safeFit(): void {
-			if (!fitAddon || !terminal) return;
-			const dims = fitAddon.proposeDimensions?.();
-			if (!dims) return;
-			if (dims.cols < 2 || dims.rows < 1) return;
-			fitAddon.fit();
-		}
 
 		terminal.open(terminalContainer);
 		// Fit after the element is laid out; this also triggers the initial onResize so backend sees correct cols/rows.

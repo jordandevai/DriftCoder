@@ -97,6 +97,7 @@ function createSettingsStore() {
 					typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
 				const mobileDefault: SettingsState = {
 					...defaultSettings,
+					fontSize: coarsePointer ? 16 : defaultSettings.fontSize,
 					terminalSessionPersistence: coarsePointer ? 'tmux' : defaultSettings.terminalSessionPersistence
 				};
 				const merged = loaded ? ({ ...mobileDefault, ...loaded } as SettingsState) : mobileDefault;

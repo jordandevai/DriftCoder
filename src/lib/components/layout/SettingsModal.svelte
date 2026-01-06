@@ -20,6 +20,7 @@
 	const scrollback = $derived($settingsStore.terminalScrollback);
 	const terminalPersistence = $derived($settingsStore.terminalSessionPersistence);
 	const tmuxPrefix = $derived($settingsStore.terminalTmuxSessionPrefix);
+	const fontSize = $derived($settingsStore.fontSize);
 	const wordWrap = $derived($settingsStore.wordWrap);
 	const themeMode = $derived($settingsStore.themeMode);
 	const themeOverrides = $derived($settingsStore.themeOverrides);
@@ -92,6 +93,21 @@
 				<div class="text-xs text-editor-fg/60">
 					Effective: <span class="font-medium">{effectiveTheme}</span>
 				</div>
+			</div>
+
+			<div class="mt-3 flex flex-wrap items-center gap-3">
+				<label class="text-sm text-editor-fg/80" for="settings-font-size">Font size</label>
+				<input
+					id="settings-font-size"
+					class="input w-24"
+					type="number"
+					min="10"
+					max="24"
+					step="1"
+					value={fontSize}
+					oninput={(e) => settingsStore.setFontSize(Number((e.currentTarget as HTMLInputElement).value))}
+				/>
+				<div class="text-xs text-editor-fg/60">Applies to editor + terminal</div>
 			</div>
 		</div>
 
