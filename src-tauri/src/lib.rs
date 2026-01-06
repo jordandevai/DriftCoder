@@ -51,6 +51,7 @@ pub fn run() {
             commands::connection::ssh_check_tmux,
             commands::connection::ssh_test_connection,
             commands::connection::ssh_list_trusted_host_keys,
+            commands::connection::ssh_get_trusted_host_key,
             commands::connection::ssh_trust_host_key,
             commands::connection::ssh_forget_host_key,
             // File system commands

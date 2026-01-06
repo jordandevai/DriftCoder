@@ -43,7 +43,7 @@ function buildStartupCommandForTerminal(sessionId: string, terminalId: string): 
 	const projectRoot = session?.projectRoot || '';
 	const profile = session?.connectionProfile;
 	const identity = profile
-		? `${profile.username}@${profile.host}:${profile.port}|${projectRoot}`
+		? `${profile.username}@${profile.hostKeyFingerprintSha256 ? `hostkey:${profile.hostKeyFingerprintSha256}` : `${profile.host}:${profile.port}`}|${projectRoot}`
 		: `${projectRoot}`;
 	const suffix = fnv1aHash36(identity).slice(0, 6) || '000000';
 	const projectSlug = projectSlugFromRoot(projectRoot);

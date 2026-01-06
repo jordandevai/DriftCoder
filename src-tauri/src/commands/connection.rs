@@ -462,6 +462,18 @@ pub async fn ssh_list_trusted_host_keys(
         .map_err(|e| IpcError::new("hostkey_store_failed", "Failed to read trusted host keys").with_raw(e))
 }
 
+/// Fetch the trusted host key entry for `host:port` (if present).
+#[tauri::command]
+pub async fn ssh_get_trusted_host_key(
+    app: AppHandle,
+    host: String,
+    port: u16,
+) -> Result<Option<known_hosts::KnownHostEntry>, IpcError> {
+    known_hosts::get(&app, &host, port)
+        .await
+        .map_err(|e| IpcError::new("hostkey_store_failed", "Failed to read trusted host key").with_raw(e))
+}
+
 /// Persist a trusted host key for `host:port`.
 #[tauri::command]
 pub async fn ssh_trust_host_key(app: AppHandle, request: TrustHostKeyRequest) -> Result<(), IpcError> {

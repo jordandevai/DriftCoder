@@ -85,15 +85,15 @@
 	// Handle connection from ConnectionScreen when no sessions exist
 	async function handleFirstConnect(profile: ConnectionProfile, password?: string, projectPath?: string) {
 		try {
-			const connectionId = await connectionStore.connect(profile, password);
+			const { connectionId, profile: enrichedProfile } = await connectionStore.connect(profile, password);
 			if (projectPath) {
 				// Directly open the project
-				await workspaceStore.createSession(connectionId, profile, projectPath);
-				connectionStore.addRecentProject(profile.id, projectPath);
+				await workspaceStore.createSession(connectionId, enrichedProfile, projectPath);
+				connectionStore.addRecentProject(enrichedProfile.id, projectPath);
 			} else {
 				// Show folder select for this connection
 				pendingConnectionId = connectionId;
-				pendingProfile = profile;
+				pendingProfile = enrichedProfile;
 			}
 		} catch (error) {
 			console.error('Connection failed:', error);

@@ -76,6 +76,58 @@ function createConnectionStore() {
 	return {
 		subscribe,
 
+		async getTrustedHostKeyFingerprint(
+			profile: Pick<ConnectionProfile, 'host' | 'port'>
+		): Promise<string | null> {
+			try {
+				const entry = await invoke<{ fingerprintSha256: string } | null>('ssh_get_trusted_host_key', {
+					host: profile.host,
+					port: profile.port
+				});
+				return entry?.fingerprintSha256 ? entry.fingerprintSha256 : null;
+			} catch {
+				return null;
+			}
+		},
+
+		async applyHostKeyFingerprint(profile: ConnectionProfile): Promise<ConnectionProfile> {
+			const fingerprintSha256 = await this.getTrustedHostKeyFingerprint(profile);
+			if (!fingerprintSha256) return profile;
+			if (profile.hostKeyFingerprintSha256 === fingerprintSha256) return profile;
+
+			const updatedProfile: ConnectionProfile = { ...profile, hostKeyFingerprintSha256: fingerprintSha256 };
+
+			update((s) => {
+				let changed = false;
+				const nextActive = new Map(s.activeConnections);
+
+				for (const [id, conn] of nextActive.entries()) {
+					if (conn.profile.id !== profile.id) continue;
+					nextActive.set(id, {
+						...conn,
+						profile: { ...conn.profile, hostKeyFingerprintSha256: fingerprintSha256 }
+					});
+					changed = true;
+				}
+
+				const hasSavedProfile = s.savedProfiles.some((p) => p.id === profile.id);
+				const nextSaved = hasSavedProfile
+					? s.savedProfiles.map((p) =>
+							p.id === profile.id ? { ...p, hostKeyFingerprintSha256: fingerprintSha256 } : p
+						)
+					: s.savedProfiles;
+
+				if (hasSavedProfile) {
+					saveConnections(nextSaved);
+					changed = true;
+				}
+
+				return changed ? { ...s, activeConnections: nextActive, savedProfiles: nextSaved } : s;
+			});
+
+			return updatedProfile;
+		},
+
 		/**
 		 * Register a connection ID as known to the UI without connecting.
 		 * Used when restoring a workspace after the app was backgrounded/killed.
@@ -124,6 +176,7 @@ function createConnectionStore() {
 			try {
 				try {
 					await reconnectOnce();
+					await this.applyHostKeyFingerprint(active.profile);
 				} catch (error) {
 					if (error instanceof TauriCommandError && error.code === 'ssh_hostkey_untrusted') {
 						const ctx = parseHostKeyContext(error.context);
@@ -148,6 +201,7 @@ function createConnectionStore() {
 									}
 								});
 								await reconnectOnce();
+								await this.applyHostKeyFingerprint(active.profile);
 							} else {
 								throw error;
 							}
@@ -183,6 +237,7 @@ function createConnectionStore() {
 									}
 								});
 								await reconnectOnce();
+								await this.applyHostKeyFingerprint(active.profile);
 							} else {
 								throw error;
 							}
@@ -260,10 +315,13 @@ function createConnectionStore() {
 		},
 
 		/**
-		 * Connect to a server. Returns the connection ID.
+		 * Connect to a server. Returns the connection ID and (possibly enriched) profile.
 		 * Does not set any "active" connection - that's managed by workspaceStore sessions.
 		 */
-		async connect(profile: ConnectionProfile, password?: string): Promise<string> {
+		async connect(
+			profile: ConnectionProfile,
+			password?: string
+		): Promise<{ connectionId: string; profile: ConnectionProfile }> {
 			update((s) => ({ ...s, status: 'connecting', error: null }));
 
 			const connectOnce = async (): Promise<string> =>
@@ -346,15 +404,16 @@ function createConnectionStore() {
 					}
 				}
 
+				const enrichedProfile = await this.applyHostKeyFingerprint(profile);
 				const activeConn: ActiveConnection = {
 					id: connectionId,
-					profile,
+					profile: enrichedProfile,
 					sessionCount: 0, // Will be incremented by workspaceStore when creating session
 					status: 'connected',
 					lastDisconnectDetail: null
 				};
 
-				if (profile.authMethod === 'password' && password) {
+				if (enrichedProfile.authMethod === 'password' && password) {
 					connectionSecrets.set(connectionId, { password });
 				}
 
@@ -369,7 +428,7 @@ function createConnectionStore() {
 					};
 				});
 
-				return connectionId;
+				return { connectionId, profile: enrichedProfile };
 			} catch (error) {
 				update((s) => ({
 					...s,

@@ -63,9 +63,9 @@
 
 	async function handleConnectionFormConnect(profile: ConnectionProfile, password?: string) {
 		try {
-			const connectionId = await connectionStore.connect(profile, password);
+			const { connectionId, profile: enrichedProfile } = await connectionStore.connect(profile, password);
 			selectedConnectionId = connectionId;
-			selectedProfile = profile;
+			selectedProfile = enrichedProfile;
 			step = 'folder';
 		} catch (error) {
 			console.error('Connection failed:', error);

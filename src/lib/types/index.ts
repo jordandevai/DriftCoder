@@ -10,6 +10,11 @@ export interface ConnectionProfile {
 	username: string;
 	authMethod: AuthMethod;
 	keyPath?: string;
+	/**
+	 * Trusted SSH server host key fingerprint (SHA256).
+	 * Used to derive stable tmux session names across hostname aliases (e.g. LAN hostname vs DDNS name).
+	 */
+	hostKeyFingerprintSha256?: string;
 	recentProjects: string[];
 	bookmarkedPaths: string[];
 }
