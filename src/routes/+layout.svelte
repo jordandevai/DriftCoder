@@ -11,6 +11,30 @@
 	let { children } = $props();
 
 	onMount(() => {
+		function updateViewportVars(): void {
+			if (typeof window === 'undefined') return;
+			const root = document.documentElement;
+			const vv = window.visualViewport;
+
+			const height = vv?.height ?? window.innerHeight;
+			const keyboardInsetBottom = vv
+				? Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+				: 0;
+
+			root.style.setProperty('--app-viewport-height', `${Math.max(0, Math.round(height))}px`);
+			root.style.setProperty(
+				'--keyboard-inset-bottom',
+				`${Math.max(0, Math.round(keyboardInsetBottom))}px`
+			);
+		}
+
+		updateViewportVars();
+
+		const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+		vv?.addEventListener('resize', updateViewportVars);
+		vv?.addEventListener('scroll', updateViewportVars);
+		window.addEventListener('resize', updateViewportVars);
+
 		connectionStore.init();
 		debugStore.init();
 		void settingsStore.init();
@@ -39,6 +63,9 @@
 		});
 
 		return () => {
+			vv?.removeEventListener('resize', updateViewportVars);
+			vv?.removeEventListener('scroll', updateViewportVars);
+			window.removeEventListener('resize', updateViewportVars);
 			unsub();
 			void invoke('android_persistence_set_active', { active: false }).catch(() => {});
 		};
@@ -54,6 +81,9 @@
 	/>
 </svelte:head>
 
-<div class="h-screen w-screen overflow-hidden bg-editor-bg text-editor-fg">
+<div
+	class="w-screen overflow-hidden bg-editor-bg text-editor-fg"
+	style="height: var(--app-viewport-height, 100vh);"
+>
 	{@render children()}
 </div>
