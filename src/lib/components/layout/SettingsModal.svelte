@@ -97,16 +97,35 @@
 
 			<div class="mt-3 flex flex-wrap items-center gap-3">
 				<label class="text-sm text-editor-fg/80" for="settings-font-size">Font size</label>
-				<input
-					id="settings-font-size"
-					class="input w-24"
-					type="number"
-					min="10"
-					max="24"
-					step="1"
-					value={fontSize}
-					oninput={(e) => settingsStore.setFontSize(Number((e.currentTarget as HTMLInputElement).value))}
-				/>
+				<div class="flex flex-wrap items-center gap-2">
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={fontSize <= 10}
+						onclick={() => settingsStore.setFontSize((fontSize ?? 14) - 1)}
+					>
+						-
+					</Button>
+					<input
+						id="settings-font-size"
+						class="w-40 accent-accent"
+						type="range"
+						min="10"
+						max="24"
+						step="1"
+						value={fontSize}
+						oninput={(e) => settingsStore.setFontSize(Number((e.currentTarget as HTMLInputElement).value))}
+					/>
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={fontSize >= 24}
+						onclick={() => settingsStore.setFontSize((fontSize ?? 14) + 1)}
+					>
+						+
+					</Button>
+					<div class="text-xs tabular-nums text-editor-fg/70 w-12 text-right">{fontSize}px</div>
+				</div>
 				<div class="text-xs text-editor-fg/60">Applies to editor + terminal</div>
 			</div>
 		</div>
