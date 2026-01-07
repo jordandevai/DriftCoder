@@ -153,6 +153,7 @@
 			<div class="absolute inset-0 {isVisibleTerminalPanel(panel) ? '' : 'invisible pointer-events-none'}">
 				<TerminalPanel
 					terminalId={panel.terminalId || ''}
+					sessionId={panel.sessionId}
 					active={isVisibleTerminalPanel(panel)}
 					connectionId={conn.connectionId}
 					connectionStatus={conn.status}

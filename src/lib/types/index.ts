@@ -166,6 +166,11 @@ export interface Session {
 	fileState: SessionFileState;
 	terminalIds: string[];
 	/**
+	 * Per-terminal UI state for the Hotkeys bar.
+	 * Keyed by `terminalId`.
+	 */
+	terminalHotkeysExpandedById?: Record<string, boolean>;
+	/**
 	 * Stable ordinal per terminal tab (used for deterministic tmux window names like `term1`, `term2`).
 	 * Keyed by `terminalId`.
 	 */

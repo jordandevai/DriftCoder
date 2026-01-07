@@ -92,7 +92,8 @@ function createWorkspaceStore() {
 					...session,
 					connectionStatus: 'disconnected',
 					connectionDetail: session.connectionDetail ?? 'Restored session (reconnect required)',
-					terminalOrdinals: session.terminalOrdinals ?? {}
+					terminalOrdinals: session.terminalOrdinals ?? {},
+					terminalHotkeysExpandedById: session.terminalHotkeysExpandedById ?? {}
 				});
 			}
 
@@ -170,6 +171,7 @@ function createWorkspaceStore() {
 					expandedPaths: new Set([projectRoot])
 				},
 				terminalIds: [],
+				terminalHotkeysExpandedById: {},
 				terminalOrdinals: {},
 				layoutState: createInitialLayoutState()
 			};
@@ -433,11 +435,27 @@ function createWorkspaceStore() {
 				newSessions.set(sessionId, {
 					...session,
 					terminalIds: [...session.terminalIds, terminalId],
+					terminalHotkeysExpandedById: session.terminalHotkeysExpandedById ?? {},
 					terminalOrdinals: {
 						...(session.terminalOrdinals ?? {}),
 						[terminalId]: (session.terminalOrdinals ?? {})[terminalId] ?? nextTerminalOrdinal(session)
 					}
 				});
+				return { ...s, sessions: newSessions };
+			});
+		},
+
+		setTerminalHotkeysExpanded(sessionId: string, terminalId: string, expanded: boolean): void {
+			update((s) => {
+				const session = s.sessions.get(sessionId);
+				if (!session) return s;
+
+				const current = session.terminalHotkeysExpandedById ?? {};
+				if (current[terminalId] === expanded) return s;
+
+				const next = { ...current, [terminalId]: expanded };
+				const newSessions = new Map(s.sessions);
+				newSessions.set(sessionId, { ...session, terminalHotkeysExpandedById: next });
 				return { ...s, sessions: newSessions };
 			});
 		},
@@ -499,11 +517,15 @@ function createWorkspaceStore() {
 				const nextOrdinals = { ...(session.terminalOrdinals ?? {}) };
 				delete nextOrdinals[terminalId];
 
+				const nextHotkeys = { ...(session.terminalHotkeysExpandedById ?? {}) };
+				delete nextHotkeys[terminalId];
+
 				const newSessions = new Map(s.sessions);
 				newSessions.set(sessionId, {
 					...session,
 					terminalIds: session.terminalIds.filter((id) => id !== terminalId),
-					terminalOrdinals: nextOrdinals
+					terminalOrdinals: nextOrdinals,
+					terminalHotkeysExpandedById: nextHotkeys
 				});
 				return { ...s, sessions: newSessions };
 			});

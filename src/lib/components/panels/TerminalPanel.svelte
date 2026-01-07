@@ -1,22 +1,31 @@
-<script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
-	import { invoke, listen } from '$utils/tauri';
-	import { notificationsStore } from '$stores/notifications';
-	import { settingsStore } from '$stores/settings';
-	import { connectionStore } from '$stores/connection';
-	import { TERMINAL_THEME_KEYS, toKebabCase } from '$utils/theme';
+	<script lang="ts">
+		import { onMount, onDestroy } from 'svelte';
+		import { invoke, listen } from '$utils/tauri';
+		import { notificationsStore } from '$stores/notifications';
+		import { settingsStore } from '$stores/settings';
+		import { connectionStore } from '$stores/connection';
+		import { workspaceStore } from '$stores/workspace';
+		import { TERMINAL_THEME_KEYS, toKebabCase } from '$utils/theme';
+		import TerminalHotkeysBar from '$components/terminal/TerminalHotkeysBar.svelte';
 
-	import type { Terminal as TerminalType } from 'xterm';
-	import type { FitAddon as FitAddonType } from '@xterm/addon-fit';
+		import type { Terminal as TerminalType } from 'xterm';
+		import type { FitAddon as FitAddonType } from '@xterm/addon-fit';
 
 	interface Props {
 		terminalId: string;
+		sessionId: string;
 		active?: boolean;
 		connectionId?: string;
 		connectionStatus?: 'connected' | 'reconnecting' | 'disconnected';
 	}
 
-	let { terminalId, active = false, connectionId, connectionStatus = 'connected' }: Props = $props();
+	let {
+		terminalId,
+		sessionId,
+		active = false,
+		connectionId,
+		connectionStatus = 'connected'
+	}: Props = $props();
 
 	let terminalContainer: HTMLDivElement;
 	let terminal: TerminalType | null = null;
@@ -28,12 +37,85 @@
 	let resizeErrorNotified = false;
 	let ptyDisconnected = $state(false);
 	let scrolledBack = $state(false);
+	let outputTail = $state<number[]>([]);
+	let applicationCursorKeys = $state(false);
 	const scrollback = $derived($settingsStore.terminalScrollback ?? 50_000);
 	const fontSize = $derived($settingsStore.fontSize ?? 14);
 	const themeMode = $derived($settingsStore.themeMode);
 	const themeOverrides = $derived($settingsStore.themeOverrides);
 	const connectionDown = $derived(connectionStatus !== 'connected');
 	const isReconnecting = $derived(connectionStatus === 'reconnecting');
+	const arrowMode = $derived.by(() => (applicationCursorKeys ? 'ss3' : 'csi') as 'ss3' | 'csi');
+
+	type HotkeyAction = { kind: 'bytes'; bytes: number[] } | { kind: 'text'; text: string };
+
+	function isCoarsePointer(): boolean {
+		if (typeof window === 'undefined') return false;
+		try {
+			return window.matchMedia?.('(pointer: coarse)')?.matches ?? false;
+		} catch {
+			return false;
+		}
+	}
+
+	const hotkeysExpanded = $derived.by(() => {
+		const session = $workspaceStore.sessions.get(sessionId);
+		const stored = session?.terminalHotkeysExpandedById?.[terminalId];
+		if (typeof stored === 'boolean') return stored;
+		return isCoarsePointer();
+	});
+
+	function toggleHotkeys(): void {
+		workspaceStore.setTerminalHotkeysExpanded(sessionId, terminalId, !hotkeysExpanded);
+		queueMicrotask(() => terminal?.focus());
+	}
+
+	function updateApplicationCursorMode(data: number[]): void {
+		// DECCKM (Application Cursor Keys): CSI ? 1 h / CSI ? 1 l
+		const ON = [0x1b, 0x5b, 0x3f, 0x31, 0x68];
+		const OFF = [0x1b, 0x5b, 0x3f, 0x31, 0x6c];
+		const combined = [...outputTail, ...data];
+		let next = applicationCursorKeys;
+
+		for (let i = 0; i <= combined.length - 5; i += 1) {
+			const slice = combined.slice(i, i + 5);
+			if (slice.every((b, idx) => b === ON[idx])) next = true;
+			if (slice.every((b, idx) => b === OFF[idx])) next = false;
+		}
+
+		applicationCursorKeys = next;
+		outputTail = combined.slice(-8);
+	}
+
+	async function writeBytes(bytes: Uint8Array): Promise<void> {
+		if (connectionDown || ptyDisconnected) return;
+		try {
+			await invoke('terminal_write', { termId: terminalId, data: Array.from(bytes) });
+		} catch (error) {
+			console.error('Failed to write to terminal:', error);
+			ptyDisconnected = true;
+			// If the SSH connection is already down, avoid spamming "terminal disconnected" noise;
+			// the reconnect flow will surface the underlying connection issue.
+			if (!connectionDown && !writeErrorNotified) {
+				writeErrorNotified = true;
+				notificationsStore.notify({
+					severity: 'error',
+					title: 'Terminal Disconnected',
+					message: 'Terminal input failed. The remote terminal may have closed or disconnected.',
+					detail: error instanceof Error ? error.message : String(error)
+				});
+			}
+		}
+	}
+
+	function sendHotkey(action: HotkeyAction): void {
+		if (action.kind === 'bytes') {
+			void writeBytes(new Uint8Array(action.bytes));
+		} else {
+			void writeBytes(new TextEncoder().encode(action.text));
+		}
+		queueMicrotask(() => terminal?.focus());
+	}
 
 	$effect(() => {
 		if (!connectionDown) {
@@ -155,27 +237,9 @@
 		terminal.loadAddon(fitAddon);
 		terminal.loadAddon(new WebLinksAddon());
 
-		// Handle user input
-		terminal.onData(async (data) => {
-			if (connectionDown || ptyDisconnected) return;
-			try {
-				const bytes = new TextEncoder().encode(data);
-				await invoke('terminal_write', { termId: terminalId, data: Array.from(bytes) });
-			} catch (error) {
-				console.error('Failed to write to terminal:', error);
-				ptyDisconnected = true;
-				// If the SSH connection is already down, avoid spamming "terminal disconnected" noise;
-				// the reconnect flow will surface the underlying connection issue.
-				if (!connectionDown && !writeErrorNotified) {
-					writeErrorNotified = true;
-					notificationsStore.notify({
-						severity: 'error',
-						title: 'Terminal Disconnected',
-						message: 'Terminal input failed. The remote terminal may have closed or disconnected.',
-						detail: error instanceof Error ? error.message : String(error)
-					});
-				}
-			}
+		// Handle user input (keyboard/IME via xterm)
+		terminal.onData((data) => {
+			void writeBytes(new TextEncoder().encode(data));
 		});
 
 		// Handle resize
@@ -217,6 +281,7 @@
 		// Listen for terminal output
 		unlisten = (await listen<{ terminal_id: string; data: number[] }>('terminal_output', (event) => {
 			if (event.terminal_id === terminalId && terminal) {
+				updateApplicationCursorMode(event.data);
 				const bytes = new Uint8Array(event.data);
 				terminal.write(bytes);
 				// If the user isn't reviewing history, keep the view pinned to the live bottom output.
@@ -279,54 +344,64 @@
 </script>
 
 <div class="h-full w-full p-1" style="background-color: rgb(var(--c-terminal-background));">
-	<div class="relative h-full w-full">
-		<div bind:this={terminalContainer} class="h-full w-full"></div>
-		{#if scrolledBack && !connectionDown && !ptyDisconnected}
-			<button
-				class="absolute bottom-2 right-2 z-10 rounded bg-white/10 px-2 py-1 text-[11px] text-gray-100 hover:bg-white/20 transition-colors"
-				onclick={jumpToBottom}
-			>
-				Jump to bottom
-			</button>
-		{/if}
-		{#if connectionDown || ptyDisconnected}
-			<div class="absolute left-2 right-2 top-2 z-10 pointer-events-auto">
-				<div class="flex items-center justify-between gap-2 rounded border border-panel-border bg-panel-bg/95 px-3 py-2 text-xs text-gray-100 shadow">
-					<div class="min-w-0">
-						{#if isReconnecting}
-							<div class="font-medium truncate">Reconnecting…</div>
-							<div class="text-[11px] text-gray-300 truncate">
-								Keeping this terminal open and restoring the session when the connection returns.
-							</div>
-						{:else if connectionDown}
-							<div class="font-medium truncate">Disconnected</div>
-							<div class="text-[11px] text-gray-300 truncate">
-								Connection dropped. DriftCoder will try to reconnect automatically.
-							</div>
-						{:else}
-							<div class="font-medium truncate">Terminal closed</div>
-							<div class="text-[11px] text-gray-300 truncate">
-								The remote shell ended. Reopen this terminal or create a new one.
-							</div>
+	<div class="h-full w-full flex flex-col">
+		<div class="relative flex-1 min-h-0">
+			<div bind:this={terminalContainer} class="h-full w-full"></div>
+			{#if scrolledBack && !connectionDown && !ptyDisconnected}
+				<button
+					class="absolute bottom-2 right-2 z-10 rounded bg-white/10 px-2 py-1 text-[11px] text-gray-100 hover:bg-white/20 transition-colors"
+					onclick={jumpToBottom}
+				>
+					Jump to bottom
+				</button>
+			{/if}
+			{#if connectionDown || ptyDisconnected}
+				<div class="absolute left-2 right-2 top-2 z-10 pointer-events-auto">
+					<div class="flex items-center justify-between gap-2 rounded border border-panel-border bg-panel-bg/95 px-3 py-2 text-xs text-gray-100 shadow">
+						<div class="min-w-0">
+							{#if isReconnecting}
+								<div class="font-medium truncate">Reconnecting…</div>
+								<div class="text-[11px] text-gray-300 truncate">
+									Keeping this terminal open and restoring the session when the connection returns.
+								</div>
+							{:else if connectionDown}
+								<div class="font-medium truncate">Disconnected</div>
+								<div class="text-[11px] text-gray-300 truncate">
+									Connection dropped. DriftCoder will try to reconnect automatically.
+								</div>
+							{:else}
+								<div class="font-medium truncate">Terminal closed</div>
+								<div class="text-[11px] text-gray-300 truncate">
+									The remote shell ended. Reopen this terminal or create a new one.
+								</div>
+							{/if}
+						</div>
+						{#if connectionId && connectionStatus === 'disconnected'}
+							<button
+								class="shrink-0 rounded bg-white/10 px-2 py-1 hover:bg-white/20 transition-colors"
+								onclick={async () => {
+									try {
+										await connectionStore.reconnect(connectionId);
+									} catch {
+										// reconnect flow handles prompts/errors
+									}
+								}}
+							>
+								Reconnect
+							</button>
 						{/if}
 					</div>
-					{#if connectionId && connectionStatus === 'disconnected'}
-						<button
-							class="shrink-0 rounded bg-white/10 px-2 py-1 hover:bg-white/20 transition-colors"
-							onclick={async () => {
-								try {
-									await connectionStore.reconnect(connectionId);
-								} catch {
-									// reconnect flow handles prompts/errors
-								}
-							}}
-						>
-							Reconnect
-						</button>
-					{/if}
 				</div>
-			</div>
-		{/if}
+			{/if}
+		</div>
+
+		<TerminalHotkeysBar
+			expanded={hotkeysExpanded}
+			disabled={connectionDown || ptyDisconnected}
+			arrowMode={arrowMode}
+			onToggle={toggleHotkeys}
+			onSend={sendHotkey}
+		/>
 	</div>
 </div>
 
