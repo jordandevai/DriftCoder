@@ -24,7 +24,12 @@ class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activ
   private fun setNativeKeyboardInset(webView: android.webkit.WebView, bottomPx: Int) {
     // Avoid spamming no-op JS evaluations.
     val clamped = max(0, bottomPx)
-    val js = "try{document.documentElement.style.setProperty('--native-keyboard-inset-bottom','${clamped}px');}catch(e){}"
+    val js = """
+      try {
+        document.documentElement.style.setProperty('--native-keyboard-inset-bottom', '${clamped}px');
+        window.dispatchEvent(new CustomEvent('native-ime-insets', { detail: { bottomPx: ${clamped} } }));
+      } catch (e) {}
+    """.trimIndent()
     webView.post { webView.evaluateJavascript(js, null) }
   }
 
@@ -46,14 +51,15 @@ class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activ
     // Track IME (soft keyboard) height and expose it to the web layer via a CSS variable.
     // Some Android WebViews do not update VisualViewport reliably on IME open/close.
     try {
-      ViewCompat.setOnApplyWindowInsetsListener(webView) { _, insets ->
+      val root = activity.window?.decorView ?: webView
+      ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
         val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
         // Use a threshold so navigation bars/system UI don't count as "keyboard".
         val bottom = if (imeBottom >= 80) imeBottom else 0
         setNativeKeyboardInset(webView, bottom)
         insets
       }
-      webView.post { ViewCompat.requestApplyInsets(webView) }
+      root.post { ViewCompat.requestApplyInsets(root) }
     } catch (e: Exception) {
       Logger.error("Failed to install IME insets listener: ${e.message}")
     }

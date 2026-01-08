@@ -85,6 +85,13 @@
 		window.addEventListener('focusin', onFocusChange);
 		window.addEventListener('focusout', onFocusChange);
 
+		// Native Android emits this event when it detects IME inset changes.
+		const onNativeImeInsets = () => {
+			updateViewportVars();
+			window.setTimeout(updateViewportVars, 50);
+		};
+		window.addEventListener('native-ime-insets', onNativeImeInsets as EventListener);
+
 		connectionStore.init();
 		debugStore.init();
 		void settingsStore.init();
@@ -118,6 +125,7 @@
 			window.removeEventListener('resize', updateViewportVars);
 			window.removeEventListener('focusin', onFocusChange);
 			window.removeEventListener('focusout', onFocusChange);
+			window.removeEventListener('native-ime-insets', onNativeImeInsets as EventListener);
 			unsub();
 			void invoke('android_persistence_set_active', { active: false }).catch(() => {});
 		};
