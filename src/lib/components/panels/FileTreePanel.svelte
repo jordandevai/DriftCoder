@@ -9,6 +9,20 @@
 	let contextMenu = $state<{ x: number; y: number; entry: FileEntry } | null>(null);
 	let renaming = $state<{ path: string; name: string } | null>(null);
 	let creating = $state<{ parentPath: string; type: 'file' | 'folder'; name: string } | null>(null);
+	let lastAutoLoadedSessionId = $state<string | null>(null);
+
+	$effect(() => {
+		const sessionId = $activeSession?.id;
+		if (!sessionId) return;
+		if (lastAutoLoadedSessionId === sessionId) return;
+		if ($fileStore.tree.length > 0) {
+			lastAutoLoadedSessionId = sessionId;
+			return;
+		}
+		void fileStore.ensureProjectTreeLoaded().finally(() => {
+			lastAutoLoadedSessionId = sessionId;
+		});
+	});
 
 	function toggleDirectory(entry: FileEntry) {
 		if (entry.isDirectory) {
@@ -268,6 +282,24 @@
 
 	<!-- File Tree -->
 	<div class="flex-1 overflow-y-auto overflow-x-hidden py-1">
+		{#if $fileStore.tree.length === 0}
+			<div class="px-3 py-3 text-sm text-gray-400">
+				<div class="mb-2">No files loaded.</div>
+				<button
+					class="px-2 py-1 rounded bg-white/5 hover:bg-white/10 transition-colors text-gray-200"
+					onclick={async () => {
+						try {
+							await fileStore.refreshDirectory($fileStore.projectRoot);
+						} catch (e) {
+							console.warn('Failed to refresh file tree:', e);
+						}
+					}}
+				>
+					Refresh
+				</button>
+			</div>
+		{/if}
+
 		{#if creating && creating.parentPath === $fileStore.projectRoot}
 			<div class="flex items-center gap-2 px-3 py-1">
 				<!-- svelte-ignore a11y_autofocus -->

@@ -97,16 +97,23 @@ function createWorkspaceStore() {
 				});
 			}
 
-			// Validate active session
+			// Validate session ordering (older/invalid saves may have sessions but an empty order)
+			const sessionOrder = (restored.sessionOrder ?? []).filter((id) => nextSessions.has(id));
+			if (sessionOrder.length === 0 && nextSessions.size > 0) {
+				// Map iteration preserves insertion order.
+				sessionOrder.push(...Array.from(nextSessions.keys()));
+			}
+
+			// Validate active session (ensure non-null if sessions exist)
 			const activeSessionId =
 				restored.activeSessionId && nextSessions.has(restored.activeSessionId)
 					? restored.activeSessionId
-					: restored.sessionOrder[0] || null;
+					: sessionOrder[0] || Array.from(nextSessions.keys())[0] || null;
 
 			set({
 				sessions: nextSessions,
 				activeSessionId,
-				sessionOrder: restored.sessionOrder.filter((id) => nextSessions.has(id))
+				sessionOrder
 			});
 
 			// Ensure connections are registered in connectionStore so reconnect works.

@@ -165,6 +165,15 @@
 		document.removeEventListener('touchcancel', stopTouchResize);
 	}
 
+	function terminalHasFocus(): boolean {
+		if (typeof document === 'undefined') return false;
+		const active = document.activeElement as HTMLElement | null;
+		if (!active) return false;
+		// xterm.js focuses a hidden textarea; avoid capturing Ctrl shortcuts while the terminal is active
+		if (active.classList.contains('xterm-helper-textarea')) return true;
+		return Boolean(active.closest('.xterm'));
+	}
+
 	function handleGlobalKeydown(e: KeyboardEvent) {
 		const mod = e.metaKey || e.ctrlKey;
 		if (!mod) return;
@@ -174,6 +183,9 @@
 
 		// Only handle app-level shortcuts when a project/session exists
 		if (!$hasSessions) return;
+
+		// Let the terminal keep its native shortcuts (tmux Ctrl+B, flow control Ctrl+S, etc.)
+		if (terminalHasFocus()) return;
 
 		const key = e.key.toLowerCase();
 		const code = e.code;

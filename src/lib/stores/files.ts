@@ -87,6 +87,51 @@ const fileStateStore = derived(activeSession, ($session) => {
 function createFileStore() {
 	let remoteSyncCleanup: (() => void) | null = null;
 	let remotePollTimer: number | null = null;
+	const lastTreeEnsureAtBySessionId = new Map<string, number>();
+	const TREE_ENSURE_THROTTLE_MS = 15_000;
+
+	async function refreshDirectoryForSession(
+		sessionId: string,
+		connId: string,
+		projectRoot: string,
+		path: string
+	): Promise<void> {
+		const entries = await invoke<FileEntry[]>('sftp_list_dir', { connId, path });
+		const sortedEntries = sortEntries(entries);
+
+		updateFileState(sessionId, (s) => {
+			if (path === projectRoot) {
+				return { ...s, tree: sortedEntries };
+			}
+			const newTree = addChildrenToTree(s.tree, path, sortedEntries);
+			return { ...s, tree: newTree };
+		});
+	}
+
+	async function ensureProjectTreeLoadedForActiveSession(): Promise<void> {
+		const session = get(activeSession);
+		if (!session) return;
+		if (session.connectionStatus === 'disconnected') return;
+		if (!session.projectRoot) return;
+		if (session.fileState.tree.length > 0) return;
+
+		const last = lastTreeEnsureAtBySessionId.get(session.id) ?? 0;
+		const now = Date.now();
+		if (now - last < TREE_ENSURE_THROTTLE_MS) return;
+		lastTreeEnsureAtBySessionId.set(session.id, now);
+
+		try {
+			console.debug('[fileStore] auto-loading file tree', {
+				sessionId: session.id,
+				projectRoot: session.projectRoot
+			});
+			await refreshDirectoryForSession(session.id, session.connectionId, session.projectRoot, session.projectRoot);
+		} catch (error) {
+			// Best-effort: if the connection is still establishing or temporarily unavailable,
+			// leave the tree empty and allow manual refresh.
+			console.warn('Failed to auto-load project file tree:', error);
+		}
+	}
 
 	async function fetchRemoteFileInternal(path: string): Promise<{ content: string; mtime: number; size: number }> {
 		const session = requireActiveSession();
@@ -288,17 +333,15 @@ function createFileStore() {
 			const sessionId = session.id;
 			const connId = session.connectionId;
 			const projectRoot = session.projectRoot;
+			await refreshDirectoryForSession(sessionId, connId, projectRoot, path);
+		},
 
-			const entries = await invoke<FileEntry[]>('sftp_list_dir', { connId, path });
-			const sortedEntries = sortEntries(entries);
-
-			updateFileState(sessionId, (s) => {
-				if (path === projectRoot) {
-					return { ...s, tree: sortedEntries };
-				}
-				const newTree = addChildrenToTree(s.tree, path, sortedEntries);
-				return { ...s, tree: newTree };
-			});
+		/**
+		 * If the project tree is missing (e.g. restored session after app restart), load it.
+		 * Safe to call repeatedly; it throttles and is best-effort.
+		 */
+		async ensureProjectTreeLoaded(): Promise<void> {
+			await ensureProjectTreeLoadedForActiveSession();
 		},
 
 		async expandDirectory(path: string): Promise<void> {
