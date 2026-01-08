@@ -21,6 +21,8 @@ class ActiveArgs {
 
 @TauriPlugin
 class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activity) {
+  private var baselineWebViewHeight: Int = 0
+
   private fun setNativeKeyboardInset(webView: android.webkit.WebView, bottomPx: Int) {
     // Avoid spamming no-op JS evaluations.
     val clamped = max(0, bottomPx)
@@ -54,8 +56,29 @@ class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activ
       val root = activity.window?.decorView ?: webView
       ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
         val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-        // Use a threshold so navigation bars/system UI don't count as "keyboard".
-        val bottom = if (imeBottom >= 80) imeBottom else 0
+        // Some devices/reporting include the navigation bar area in IME insets. Subtract system bars
+        // so we only apply the overlay portion attributable to the keyboard itself.
+        val systemBottom = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+        val keyboardBottom = max(0, imeBottom - systemBottom)
+
+        val KEYBOARD_THRESHOLD_PX = 80
+        val keyboardVisible = keyboardBottom >= KEYBOARD_THRESHOLD_PX
+
+        // If the WebView is already resized by the IME (adjustResize), do not apply additional
+        // padding in the web layer (it would create a dead gap above the keyboard).
+        val currentHeight = webView.height
+        if (!keyboardVisible) {
+          if (currentHeight > 0) baselineWebViewHeight = max(baselineWebViewHeight, currentHeight)
+          setNativeKeyboardInset(webView, 0)
+          return@setOnApplyWindowInsetsListener insets
+        }
+
+        val resizedByIme =
+          baselineWebViewHeight > 0 &&
+            currentHeight > 0 &&
+            (baselineWebViewHeight - currentHeight) >= KEYBOARD_THRESHOLD_PX
+
+        val bottom = if (resizedByIme) 0 else keyboardBottom
         setNativeKeyboardInset(webView, bottom)
         insets
       }

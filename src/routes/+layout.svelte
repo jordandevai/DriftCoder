@@ -17,8 +17,16 @@
 			if (typeof window === 'undefined') return;
 			const root = document.documentElement;
 			const vv = window.visualViewport;
+			const isAndroid = /Android/i.test(navigator.userAgent);
+			const isTauriAndroid = isAndroid && isTauri();
 
-			const layoutHeight = window.innerHeight;
+			// Prefer measurements that reflect the *actual* WebView/layout viewport on Android.
+			// `window.innerHeight` can remain stale in some WebViews even when the window resizes.
+			const layoutHeightRaw =
+				(isTauriAndroid ? vv?.height : null) ??
+				document.documentElement.clientHeight ??
+				window.innerHeight;
+			const layoutHeight = Math.round(layoutHeightRaw);
 			const visualHeight = vv?.height ?? layoutHeight;
 			const offsetTop = vv?.offsetTop ?? 0;
 
@@ -32,11 +40,6 @@
 			// If the layout viewport shrinks, the OS is already resizing the WebView (adjustResize).
 			const resizedByKeyboard = layoutHeight < baselineLayoutHeight - KEYBOARD_THRESHOLD_PX;
 
-			// If only the visual viewport shrinks, the keyboard is overlaying content.
-			const visualOverlayKeyboard =
-				!resizedByKeyboard &&
-				visualHeight + offsetTop < baselineLayoutHeight - KEYBOARD_THRESHOLD_PX;
-
 			// Native Android fallback (WebView can fail to update VisualViewport on IME open/close).
 			let nativeInsetBottom = 0;
 			try {
@@ -48,14 +51,26 @@
 				nativeInsetBottom = 0;
 			}
 
+			// On Tauri Android, `VisualViewport` can shrink even when the OS is doing adjustResize,
+			// which makes "visual overlay" heuristics double-count and create a dead gap.
+			// Prefer the native IME inset signal there.
+			const visualOverlayKeyboard =
+				!isTauriAndroid &&
+				!resizedByKeyboard &&
+				visualHeight + offsetTop < baselineLayoutHeight - KEYBOARD_THRESHOLD_PX;
+
 			const nativeOverlayKeyboard = !resizedByKeyboard && nativeInsetBottom > KEYBOARD_THRESHOLD_PX;
 
 			const visualInsetBottom = visualOverlayKeyboard
 				? Math.max(0, Math.round(baselineLayoutHeight - visualHeight - offsetTop))
 				: 0;
 
-			const overlayKeyboard = visualOverlayKeyboard || nativeOverlayKeyboard;
-			const keyboardInsetBottom = overlayKeyboard ? Math.max(visualInsetBottom, nativeInsetBottom) : 0;
+			const overlayKeyboard = isTauriAndroid ? nativeOverlayKeyboard : visualOverlayKeyboard || nativeOverlayKeyboard;
+			const keyboardInsetBottom = overlayKeyboard
+				? isTauriAndroid
+					? nativeInsetBottom
+					: Math.max(visualInsetBottom, nativeInsetBottom)
+				: 0;
 
 			// For overlay keyboards we keep the container at baseline height and use padding to
 			// lift content above the keyboard. For resize keyboards we match the layout height.
