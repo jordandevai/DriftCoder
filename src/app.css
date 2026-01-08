@@ -9,6 +9,10 @@
 		--keyboard-inset-bottom: 0px;
 		/* Set by native Android (when available) for reliable IME insets in WebView. */
 		--native-keyboard-inset-bottom: 0px;
+		/* Optional native diagnostics for IME/layout behavior in Android WebView. */
+		--native-webview-height: 0px;
+		--native-baseline-webview-height: 0px;
+		--native-resized-by-ime: 0;
 
 		--font-mono: 'JetBrains Mono', 'Fira Code', Consolas, Monaco, monospace;
 		--font-sans: 'Inter', system-ui, sans-serif;

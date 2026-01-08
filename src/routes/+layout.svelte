@@ -20,12 +20,11 @@
 			const isAndroid = /Android/i.test(navigator.userAgent);
 			const isTauriAndroid = isAndroid && isTauri();
 
-			// Prefer measurements that reflect the *actual* WebView/layout viewport on Android.
 			// `window.innerHeight` can remain stale in some WebViews even when the window resizes.
-			const layoutHeightRaw =
-				(isTauriAndroid ? vv?.height : null) ??
-				document.documentElement.clientHeight ??
-				window.innerHeight;
+			// Prefer `documentElement.clientHeight` for the layout viewport height.
+			// (Avoid using VisualViewport here; some Android WebViews report it in ways that cause
+			// us to mis-detect adjustResize and apply IME padding, creating a dead gap.)
+			const layoutHeightRaw = document.documentElement.clientHeight ?? window.innerHeight;
 			const layoutHeight = Math.round(layoutHeightRaw);
 			const visualHeight = vv?.height ?? layoutHeight;
 			const offsetTop = vv?.offsetTop ?? 0;
@@ -42,24 +41,33 @@
 
 			// Native Android fallback (WebView can fail to update VisualViewport on IME open/close).
 			let nativeInsetBottom = 0;
+			let nativeResizedByIme = false;
 			try {
 				const raw = root.style.getPropertyValue('--native-keyboard-inset-bottom');
 				// If not set inline, fall back to computed style.
 				const val = raw || getComputedStyle(root).getPropertyValue('--native-keyboard-inset-bottom');
 				nativeInsetBottom = Math.max(0, parseInt(String(val).trim(), 10) || 0);
+
+				const resizedRaw = root.style.getPropertyValue('--native-resized-by-ime');
+				const resizedVal = resizedRaw || getComputedStyle(root).getPropertyValue('--native-resized-by-ime');
+				nativeResizedByIme = String(resizedVal).trim() === '1';
 			} catch {
 				nativeInsetBottom = 0;
+				nativeResizedByIme = false;
 			}
+
+			const resizedByKeyboardEffective = resizedByKeyboard || (isTauriAndroid && nativeResizedByIme);
 
 			// On Tauri Android, `VisualViewport` can shrink even when the OS is doing adjustResize,
 			// which makes "visual overlay" heuristics double-count and create a dead gap.
 			// Prefer the native IME inset signal there.
 			const visualOverlayKeyboard =
 				!isTauriAndroid &&
-				!resizedByKeyboard &&
+				!resizedByKeyboardEffective &&
 				visualHeight + offsetTop < baselineLayoutHeight - KEYBOARD_THRESHOLD_PX;
 
-			const nativeOverlayKeyboard = !resizedByKeyboard && nativeInsetBottom > KEYBOARD_THRESHOLD_PX;
+			const nativeOverlayKeyboard =
+				!resizedByKeyboardEffective && nativeInsetBottom > KEYBOARD_THRESHOLD_PX;
 
 			const visualInsetBottom = visualOverlayKeyboard
 				? Math.max(0, Math.round(baselineLayoutHeight - visualHeight - offsetTop))
