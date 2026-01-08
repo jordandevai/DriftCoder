@@ -13,7 +13,10 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri",
     "tauri:dev": "WEBKIT_DISABLE_DMABUF_RENDERER=1 tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "android:patch": "node scripts/patch-android-softinput.mjs",
+    "android:build": "npm run build && npm run android:patch && tauri android build",
+    "android:build:debug": "npm run build && npm run android:patch && tauri android build -- --debug"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.4",

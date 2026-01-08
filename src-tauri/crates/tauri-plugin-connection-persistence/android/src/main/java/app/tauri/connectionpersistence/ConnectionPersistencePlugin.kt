@@ -23,6 +23,7 @@ class ActiveArgs {
 class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activity) {
   private var baselineWebViewHeight: Int = 0
   private var baselineRootHeight: Int = 0
+  private var lastOrientation: Int = -1
   private var keyboardVisible: Boolean = false
   private var lastEmittedBottomPx: Int = -1
   private var lastEmittedWebViewHeight: Int = -1
@@ -100,6 +101,14 @@ class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activ
 
         val KEYBOARD_THRESHOLD_PX = 80
         keyboardVisible = keyboardBottom >= KEYBOARD_THRESHOLD_PX
+
+        // Reset baseline heights on orientation change to avoid stale values
+        val currentOrientation = activity.resources.configuration.orientation
+        if (lastOrientation != -1 && lastOrientation != currentOrientation) {
+          baselineRootHeight = 0
+          baselineWebViewHeight = 0
+        }
+        lastOrientation = currentOrientation
 
         // If the WebView is already resized by the IME (adjustResize), do not apply additional
         // padding in the web layer (it would create a dead gap above the keyboard).

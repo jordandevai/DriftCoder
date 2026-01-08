@@ -10,8 +10,14 @@
 
 	let { children } = $props();
 
+
 	onMount(() => {
 		let baselineLayoutHeight = 0;
+		let lastOrientation: 'portrait' | 'landscape' | null = null;
+
+		function getOrientation(): 'portrait' | 'landscape' {
+			return window.innerWidth > window.innerHeight ? 'landscape' : 'portrait';
+		}
 
 		function updateViewportVars(): void {
 			if (typeof window === 'undefined') return;
@@ -19,6 +25,13 @@
 			const vv = window.visualViewport;
 			const isAndroid = /Android/i.test(navigator.userAgent);
 			const isTauriAndroid = isAndroid && isTauri();
+
+			// Reset baseline on orientation change to avoid stale values
+			const currentOrientation = getOrientation();
+			if (lastOrientation !== null && lastOrientation !== currentOrientation) {
+				baselineLayoutHeight = 0;
+			}
+			lastOrientation = currentOrientation;
 
 			// `window.innerHeight` can remain stale in some WebViews even when the window resizes.
 			// Prefer `documentElement.clientHeight` for the layout viewport height.
@@ -93,6 +106,13 @@
 			// Set data attribute for CSS to adjust safe-area-bottom when keyboard is active.
 			const keyboardActive = resizedByKeyboardEffective || overlayKeyboard;
 			root.dataset.keyboardActive = keyboardActive ? 'true' : 'false';
+
+			// Set effective safe area bottom directly via JS
+			// When keyboard is active, we don't need safe area padding (keyboard covers that area)
+			root.style.setProperty(
+				'--effective-safe-area-bottom',
+				keyboardActive ? '0px' : 'env(safe-area-inset-bottom, 0px)'
+			);
 		}
 
 		updateViewportVars();
@@ -174,3 +194,4 @@
 >
 	{@render children()}
 </div>
+
