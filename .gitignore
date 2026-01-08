@@ -65,3 +65,6 @@ coverage/
 /tauri
 /driftcode@*
 /strategy-docs/*
+
+# GitHub Actions self-hosted runner (local)
+/actions-runner/
