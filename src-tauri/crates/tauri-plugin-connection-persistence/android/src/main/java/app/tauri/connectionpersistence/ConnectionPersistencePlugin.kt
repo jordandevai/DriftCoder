@@ -21,43 +21,16 @@ class ActiveArgs {
 
 @TauriPlugin
 class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activity) {
-  private var baselineWebViewHeight: Int = 0
-  private var baselineRootHeight: Int = 0
-  private var lastOrientation: Int = -1
-  private var keyboardVisible: Boolean = false
   private var lastEmittedBottomPx: Int = -1
-  private var lastEmittedWebViewHeight: Int = -1
-  private var lastEmittedBaselineHeight: Int = -1
-  private var lastEmittedResizedByIme: Boolean = false
 
-  private fun setNativeKeyboardInset(
-    webView: android.webkit.WebView,
-    bottomPx: Int,
-    resizedByIme: Boolean
-  ) {
-    // Avoid spamming no-op JS evaluations.
+  private fun setNativeKeyboardInset(webView: android.webkit.WebView, bottomPx: Int) {
     val clamped = max(0, bottomPx)
-    val currentHeight = webView.height
-    val baselineHeight = baselineWebViewHeight
-
-    if (
-      clamped == lastEmittedBottomPx &&
-        currentHeight == lastEmittedWebViewHeight &&
-        baselineHeight == lastEmittedBaselineHeight &&
-        resizedByIme == lastEmittedResizedByIme
-    ) return
-
+    if (clamped == lastEmittedBottomPx) return
     lastEmittedBottomPx = clamped
-    lastEmittedWebViewHeight = currentHeight
-    lastEmittedBaselineHeight = baselineHeight
-    lastEmittedResizedByIme = resizedByIme
 
     val js = """
       try {
         document.documentElement.style.setProperty('--native-keyboard-inset-bottom', '${clamped}px');
-        document.documentElement.style.setProperty('--native-webview-height', '${currentHeight}px');
-        document.documentElement.style.setProperty('--native-baseline-webview-height', '${baselineHeight}px');
-        document.documentElement.style.setProperty('--native-resized-by-ime', '${if (resizedByIme) 1 else 0}');
         window.dispatchEvent(new CustomEvent('native-ime-insets', { detail: { bottomPx: ${clamped} } }));
       } catch (e) {}
     """.trimIndent()
@@ -80,55 +53,16 @@ class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activ
     captureDisconnectIntent(activity.intent)
 
     // Track IME (soft keyboard) height and expose it to the web layer via a CSS variable.
-    // Some Android WebViews do not update VisualViewport reliably on IME open/close.
     try {
       val root = activity.window?.decorView ?: webView
 
-      // Ensure we capture a baseline size even if insets events don't fire while IME is hidden.
-      root.post {
-        if (root.height > 0) baselineRootHeight = max(baselineRootHeight, root.height)
-      }
-      webView.post {
-        if (webView.height > 0) baselineWebViewHeight = max(baselineWebViewHeight, webView.height)
-      }
-
       ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
         val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-        // Some devices/reporting include the navigation bar area in IME insets. Subtract system bars
-        // so we only apply the overlay portion attributable to the keyboard itself.
+        // Subtract system bars so we only report the keyboard portion
         val systemBottom = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
         val keyboardBottom = max(0, imeBottom - systemBottom)
 
-        val KEYBOARD_THRESHOLD_PX = 80
-        keyboardVisible = keyboardBottom >= KEYBOARD_THRESHOLD_PX
-
-        // Reset baseline heights on orientation change to avoid stale values
-        val currentOrientation = activity.resources.configuration.orientation
-        if (lastOrientation != -1 && lastOrientation != currentOrientation) {
-          baselineRootHeight = 0
-          baselineWebViewHeight = 0
-        }
-        lastOrientation = currentOrientation
-
-        // If the WebView is already resized by the IME (adjustResize), do not apply additional
-        // padding in the web layer (it would create a dead gap above the keyboard).
-        val rootHeight = root.height
-        val currentHeight = webView.height
-        if (!keyboardVisible) {
-          if (rootHeight > 0) baselineRootHeight = max(baselineRootHeight, rootHeight)
-          if (currentHeight > 0) baselineWebViewHeight = max(baselineWebViewHeight, currentHeight)
-          setNativeKeyboardInset(webView, 0, false)
-          return@setOnApplyWindowInsetsListener insets
-        }
-
-        val resizedByIme =
-          (baselineRootHeight > 0 && rootHeight > 0 && (baselineRootHeight - rootHeight) >= KEYBOARD_THRESHOLD_PX) ||
-            (baselineWebViewHeight > 0 &&
-              currentHeight > 0 &&
-              (baselineWebViewHeight - currentHeight) >= KEYBOARD_THRESHOLD_PX)
-
-        val bottom = if (resizedByIme) 0 else keyboardBottom
-        setNativeKeyboardInset(webView, bottom, resizedByIme)
+        setNativeKeyboardInset(webView, keyboardBottom)
         insets
       }
       root.post { ViewCompat.requestApplyInsets(root) }
