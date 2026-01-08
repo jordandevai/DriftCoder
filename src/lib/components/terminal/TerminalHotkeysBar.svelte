@@ -87,7 +87,7 @@
 
 <div
 	class="w-full border-t border-panel-border bg-panel-bg/95 backdrop-blur supports-[backdrop-filter]:bg-panel-bg/80"
-	style="padding-bottom: env(safe-area-inset-bottom, 0px);"
+	style="padding-bottom: var(--effective-safe-area-bottom, 0px);"
 >
 	<div class="flex items-center justify-between px-2 py-1.5">
 		<button

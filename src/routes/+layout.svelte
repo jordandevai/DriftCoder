@@ -89,6 +89,10 @@
 				'--keyboard-inset-bottom',
 				`${Math.max(0, Math.round(keyboardInsetBottom))}px`
 			);
+
+			// Set data attribute for CSS to adjust safe-area-bottom when keyboard is active.
+			const keyboardActive = resizedByKeyboardEffective || overlayKeyboard;
+			root.dataset.keyboardActive = keyboardActive ? 'true' : 'false';
 		}
 
 		updateViewportVars();

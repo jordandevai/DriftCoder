@@ -13,6 +13,8 @@
 		--native-webview-height: 0px;
 		--native-baseline-webview-height: 0px;
 		--native-resized-by-ime: 0;
+		/* Safe area bottom that becomes 0 when keyboard is active (set via data-keyboard-active attribute). */
+		--effective-safe-area-bottom: env(safe-area-inset-bottom, 0px);
 
 		--font-mono: 'JetBrains Mono', 'Fira Code', Consolas, Monaco, monospace;
 		--font-sans: 'Inter', system-ui, sans-serif;
@@ -68,6 +70,11 @@
 		--c-terminal-bright-cyan: 103 232 249;
 		--c-terminal-bright-white: 229 231 235;
 		--terminal-min-contrast: 4.5;
+	}
+
+	/* When keyboard is active, don't reserve space for the safe area (keyboard covers it). */
+	:root[data-keyboard-active='true'] {
+		--effective-safe-area-bottom: 0px;
 	}
 
 	/* Light theme overrides */
