@@ -33,13 +33,29 @@
 			const resizedByKeyboard = layoutHeight < baselineLayoutHeight - KEYBOARD_THRESHOLD_PX;
 
 			// If only the visual viewport shrinks, the keyboard is overlaying content.
-			const overlayKeyboard =
+			const visualOverlayKeyboard =
 				!resizedByKeyboard &&
 				visualHeight + offsetTop < baselineLayoutHeight - KEYBOARD_THRESHOLD_PX;
 
-			const keyboardInsetBottom = overlayKeyboard
+			// Native Android fallback (WebView can fail to update VisualViewport on IME open/close).
+			let nativeInsetBottom = 0;
+			try {
+				const raw = root.style.getPropertyValue('--native-keyboard-inset-bottom');
+				// If not set inline, fall back to computed style.
+				const val = raw || getComputedStyle(root).getPropertyValue('--native-keyboard-inset-bottom');
+				nativeInsetBottom = Math.max(0, parseInt(String(val).trim(), 10) || 0);
+			} catch {
+				nativeInsetBottom = 0;
+			}
+
+			const nativeOverlayKeyboard = !resizedByKeyboard && nativeInsetBottom > KEYBOARD_THRESHOLD_PX;
+
+			const visualInsetBottom = visualOverlayKeyboard
 				? Math.max(0, Math.round(baselineLayoutHeight - visualHeight - offsetTop))
 				: 0;
+
+			const overlayKeyboard = visualOverlayKeyboard || nativeOverlayKeyboard;
+			const keyboardInsetBottom = overlayKeyboard ? Math.max(visualInsetBottom, nativeInsetBottom) : 0;
 
 			// For overlay keyboards we keep the container at baseline height and use padding to
 			// lift content above the keyboard. For resize keyboards we match the layout height.

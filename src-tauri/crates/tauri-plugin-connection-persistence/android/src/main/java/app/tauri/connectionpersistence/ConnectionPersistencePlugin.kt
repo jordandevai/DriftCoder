@@ -3,6 +3,8 @@ package app.tauri.connectionpersistence
 import android.app.Activity
 import android.content.Intent
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import app.tauri.Logger
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -10,6 +12,7 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import kotlin.math.max
 
 @InvokeArg
 class ActiveArgs {
@@ -18,6 +21,13 @@ class ActiveArgs {
 
 @TauriPlugin
 class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activity) {
+  private fun setNativeKeyboardInset(webView: android.webkit.WebView, bottomPx: Int) {
+    // Avoid spamming no-op JS evaluations.
+    val clamped = max(0, bottomPx)
+    val js = "try{document.documentElement.style.setProperty('--native-keyboard-inset-bottom','${clamped}px');}catch(e){}"
+    webView.post { webView.evaluateJavascript(js, null) }
+  }
+
   private fun prefs() =
     activity.getSharedPreferences(PREFS_NAME, Activity.MODE_PRIVATE)
 
@@ -32,6 +42,21 @@ class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activ
   override fun load(webView: android.webkit.WebView) {
     super.load(webView)
     captureDisconnectIntent(activity.intent)
+
+    // Track IME (soft keyboard) height and expose it to the web layer via a CSS variable.
+    // Some Android WebViews do not update VisualViewport reliably on IME open/close.
+    try {
+      ViewCompat.setOnApplyWindowInsetsListener(webView) { _, insets ->
+        val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+        // Use a threshold so navigation bars/system UI don't count as "keyboard".
+        val bottom = if (imeBottom >= 80) imeBottom else 0
+        setNativeKeyboardInset(webView, bottom)
+        insets
+      }
+      webView.post { ViewCompat.requestApplyInsets(webView) }
+    } catch (e: Exception) {
+      Logger.error("Failed to install IME insets listener: ${e.message}")
+    }
   }
 
   override fun onNewIntent(intent: Intent) {
