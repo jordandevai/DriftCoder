@@ -11,17 +11,41 @@
 	let { children } = $props();
 
 	onMount(() => {
+		let baselineLayoutHeight = 0;
+
 		function updateViewportVars(): void {
 			if (typeof window === 'undefined') return;
 			const root = document.documentElement;
 			const vv = window.visualViewport;
 
-			const height = vv?.height ?? window.innerHeight;
-			const keyboardInsetBottom = vv
-				? Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+			const layoutHeight = window.innerHeight;
+			const visualHeight = vv?.height ?? layoutHeight;
+			const offsetTop = vv?.offsetTop ?? 0;
+
+			// Track the "no keyboard" baseline. This lets us compute keyboard insets even on
+			// platforms where the layout viewport shrinks alongside the visual viewport.
+			if (baselineLayoutHeight === 0) baselineLayoutHeight = layoutHeight;
+			baselineLayoutHeight = Math.max(baselineLayoutHeight, layoutHeight);
+
+			const KEYBOARD_THRESHOLD_PX = 80;
+
+			// If the layout viewport shrinks, the OS is already resizing the WebView (adjustResize).
+			const resizedByKeyboard = layoutHeight < baselineLayoutHeight - KEYBOARD_THRESHOLD_PX;
+
+			// If only the visual viewport shrinks, the keyboard is overlaying content.
+			const overlayKeyboard =
+				!resizedByKeyboard &&
+				visualHeight + offsetTop < baselineLayoutHeight - KEYBOARD_THRESHOLD_PX;
+
+			const keyboardInsetBottom = overlayKeyboard
+				? Math.max(0, Math.round(baselineLayoutHeight - visualHeight - offsetTop))
 				: 0;
 
-			root.style.setProperty('--app-viewport-height', `${Math.max(0, Math.round(height))}px`);
+			// For overlay keyboards we keep the container at baseline height and use padding to
+			// lift content above the keyboard. For resize keyboards we match the layout height.
+			const appHeight = overlayKeyboard ? baselineLayoutHeight : layoutHeight;
+
+			root.style.setProperty('--app-viewport-height', `${Math.max(0, Math.round(appHeight))}px`);
 			root.style.setProperty(
 				'--keyboard-inset-bottom',
 				`${Math.max(0, Math.round(keyboardInsetBottom))}px`
@@ -34,6 +58,16 @@
 		vv?.addEventListener('resize', updateViewportVars);
 		vv?.addEventListener('scroll', updateViewportVars);
 		window.addEventListener('resize', updateViewportVars);
+
+		// Some WebViews don’t reliably fire resize/visualViewport events on IME open/close.
+		// Focus events are a good extra signal (login fields, xterm helper textarea, etc.).
+		const onFocusChange = () => {
+			updateViewportVars();
+			window.setTimeout(updateViewportVars, 50);
+			window.setTimeout(updateViewportVars, 250);
+		};
+		window.addEventListener('focusin', onFocusChange);
+		window.addEventListener('focusout', onFocusChange);
 
 		connectionStore.init();
 		debugStore.init();
@@ -66,6 +100,8 @@
 			vv?.removeEventListener('resize', updateViewportVars);
 			vv?.removeEventListener('scroll', updateViewportVars);
 			window.removeEventListener('resize', updateViewportVars);
+			window.removeEventListener('focusin', onFocusChange);
+			window.removeEventListener('focusout', onFocusChange);
 			unsub();
 			void invoke('android_persistence_set_active', { active: false }).catch(() => {});
 		};
@@ -83,7 +119,7 @@
 
 <div
 	class="w-screen overflow-hidden bg-editor-bg text-editor-fg"
-	style="height: var(--app-viewport-height, 100vh);"
+	style="height: var(--app-viewport-height, 100vh); padding-bottom: var(--keyboard-inset-bottom, 0px); box-sizing: border-box;"
 >
 	{@render children()}
 </div>
