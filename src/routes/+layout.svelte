@@ -102,7 +102,7 @@
 
 <div
 	class="w-screen overflow-hidden bg-editor-bg text-editor-fg"
-	style="height: 100vh; height: 100dvh; height: calc(100vh - var(--native-keyboard-inset-bottom, 0px));"
+	style="height: 10vh; height: 10dvh; height: calc(10vh - var(--native-keyboard-inset-bottom, 0px));"
 >
 	{@render children()}
 </div>
