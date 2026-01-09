@@ -101,7 +101,8 @@
 </svelte:head>
 
 <div
-	class="w-screen h-screen overflow-hidden bg-editor-bg text-editor-fg"
+	class="w-screen overflow-hidden bg-editor-bg text-editor-fg"
+	style="height: 100vh; height: 100dvh;"
 >
 	{@render children()}
 </div>
