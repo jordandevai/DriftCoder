@@ -55,9 +55,6 @@
 		return isCoarsePointer();
 	});
 
-	// Whether the hotkeys bar should be visible at all (only on touch devices by default)
-	const showHotkeysBar = $derived(isCoarsePointer());
-
 	function toggleHotkeys(): void {
 		const session = $activeSession;
 		if (!session) return;
@@ -344,17 +341,15 @@
 		</div>
 	{/if}
 
-	<!-- Touch-friendly editor actions bar (visible on touch devices) -->
-	{#if showHotkeysBar}
-		<EditorHotkeysBar
-			expanded={hotkeysExpanded}
-			disabled={!file}
-			dirty={file?.dirty ?? false}
-			{editorView}
-			onToggle={toggleHotkeys}
-			onSave={handleSave}
-		/>
-	{/if}
+	<!-- Touch-friendly editor actions bar -->
+	<EditorHotkeysBar
+		expanded={hotkeysExpanded}
+		disabled={!file}
+		dirty={file?.dirty ?? false}
+		{editorView}
+		onToggle={toggleHotkeys}
+		onSave={handleSave}
+	/>
 </div>
 
 <style>
