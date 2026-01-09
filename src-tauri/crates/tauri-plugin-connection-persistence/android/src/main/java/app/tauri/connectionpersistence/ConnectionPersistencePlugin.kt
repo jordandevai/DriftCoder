@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import app.tauri.Logger
 import app.tauri.annotation.Command
@@ -52,18 +53,34 @@ class ConnectionPersistencePlugin(private val activity: Activity) : Plugin(activ
     super.load(webView)
     captureDisconnectIntent(activity.intent)
 
-    // Track IME (soft keyboard) height and expose it to the web layer via a CSS variable.
+    // Enable edge-to-edge mode for SDK 35+ compatibility
+    try {
+      WindowCompat.setDecorFitsSystemWindows(activity.window, false)
+    } catch (e: Exception) {
+      Logger.error("Failed to enable edge-to-edge: ${e.message}")
+    }
+
+    // Track IME (soft keyboard) height and apply padding to resize the view.
     try {
       val root = activity.window?.decorView ?: webView
 
-      ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
-        val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-        // Subtract system bars so we only report the keyboard portion
-        val systemBottom = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
-        val keyboardBottom = max(0, imeBottom - systemBottom)
+      ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+        val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+        val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
 
+        // Apply padding to physically resize available space when keyboard appears
+        v.setPadding(
+          systemBars.left,
+          systemBars.top,
+          systemBars.right,
+          max(systemBars.bottom, ime.bottom)
+        )
+
+        // Report to JS for scroll-into-view and CSS variable logic
+        val keyboardBottom = max(0, ime.bottom - systemBars.bottom)
         setNativeKeyboardInset(webView, keyboardBottom)
-        insets
+
+        WindowInsetsCompat.CONSUMED
       }
       root.post { ViewCompat.requestApplyInsets(root) }
     } catch (e: Exception) {
