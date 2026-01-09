@@ -89,78 +89,165 @@
 	class="w-full border-t border-panel-border bg-panel-bg/95 backdrop-blur supports-[backdrop-filter]:bg-panel-bg/80"
 	style="padding-bottom: var(--effective-safe-area-bottom, 0px);"
 >
-	<div class="flex items-center justify-between px-2 py-1.5">
-		<button
-			class="rounded px-3 py-2 text-sm bg-white/10 hover:bg-white/20 transition-colors touch-device:px-4 touch-device:py-3"
-			aria-label="Toggle hotkeys"
-			aria-expanded={expanded}
-			onpointerdown={handleTogglePointerDown}
-			onclick={() => {
-				if (suppressClick) return;
-				onToggle();
-			}}
-		>
-			Hotkeys
-		</button>
-		{#if disabled}
-			<div class="text-2xs text-gray-300">Disconnected</div>
-		{/if}
-	</div>
+	<!-- Collapsed: Show quick-access keys + expand handle -->
+	{#if !expanded}
+		<div class="flex items-center gap-1 px-2 py-1.5">
+			<!-- Quick access keys when collapsed -->
+			<button
+				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2 py-1.5 touch-device:px-3 touch-device:py-2 disabled:opacity-40"
+				disabled={disabled}
+				title="SIGINT (interrupt)"
+				onpointerdown={(e) => handleKeyPointerDown(e, { kind: 'bytes', bytes: [ctrl('c')], label: 'Ctrl+C' })}
+				onclick={() => { if (!suppressClick && !disabled) onSend({ kind: 'bytes', bytes: [ctrl('c')], label: 'Ctrl+C' }); }}
+			>
+				Ctrl+C
+			</button>
+			<button
+				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2 py-1.5 touch-device:px-3 touch-device:py-2 disabled:opacity-40"
+				disabled={disabled}
+				title="Escape"
+				onpointerdown={(e) => handleKeyPointerDown(e, { kind: 'bytes', bytes: [ESC], label: 'Esc' })}
+				onclick={() => { if (!suppressClick && !disabled) onSend({ kind: 'bytes', bytes: [ESC], label: 'Esc' }); }}
+			>
+				Esc
+			</button>
+			<button
+				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2 py-1.5 touch-device:px-3 touch-device:py-2 disabled:opacity-40"
+				disabled={disabled}
+				title="Tab"
+				onpointerdown={(e) => handleKeyPointerDown(e, { kind: 'bytes', bytes: [0x09], label: 'Tab' })}
+				onclick={() => { if (!suppressClick && !disabled) onSend({ kind: 'bytes', bytes: [0x09], label: 'Tab' }); }}
+			>
+				Tab
+			</button>
 
-	{#if expanded}
-		<div class="px-2 pb-2">
-			<div class="flex gap-2 overflow-x-auto pb-1 touch-device:gap-3" role="toolbar" aria-label="Control keys">
-				{#each rows.base as action (action.label)}
-					<button
-						class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2 py-2 touch-device:text-sm touch-device:px-3 touch-device:py-3 disabled:opacity-40"
-						disabled={disabled}
-						title={action.description ?? action.label}
-						aria-label={action.description ? `${action.label} (${action.description})` : action.label}
-						onpointerdown={(e) => handleKeyPointerDown(e, action)}
-						onclick={() => {
-							if (suppressClick || disabled) return;
-							onSend(action);
-						}}
-					>
-						{action.label}
-					</button>
-				{/each}
+			<!-- Arrow keys cluster -->
+			<div class="flex gap-0.5 ml-1">
+				<button
+					class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-1.5 py-1.5 touch-device:px-2 touch-device:py-2 disabled:opacity-40"
+					disabled={disabled}
+					title="Up arrow"
+					onpointerdown={(e) => handleKeyPointerDown(e, { kind: 'bytes', bytes: arrow('up'), label: '↑' })}
+					onclick={() => { if (!suppressClick && !disabled) onSend({ kind: 'bytes', bytes: arrow('up'), label: '↑' }); }}
+				>↑</button>
+				<button
+					class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-1.5 py-1.5 touch-device:px-2 touch-device:py-2 disabled:opacity-40"
+					disabled={disabled}
+					title="Down arrow"
+					onpointerdown={(e) => handleKeyPointerDown(e, { kind: 'bytes', bytes: arrow('down'), label: '↓' })}
+					onclick={() => { if (!suppressClick && !disabled) onSend({ kind: 'bytes', bytes: arrow('down'), label: '↓' }); }}
+				>↓</button>
+				<button
+					class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-1.5 py-1.5 touch-device:px-2 touch-device:py-2 disabled:opacity-40"
+					disabled={disabled}
+					title="Left arrow"
+					onpointerdown={(e) => handleKeyPointerDown(e, { kind: 'bytes', bytes: arrow('left'), label: '←' })}
+					onclick={() => { if (!suppressClick && !disabled) onSend({ kind: 'bytes', bytes: arrow('left'), label: '←' }); }}
+				>←</button>
+				<button
+					class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-1.5 py-1.5 touch-device:px-2 touch-device:py-2 disabled:opacity-40"
+					disabled={disabled}
+					title="Right arrow"
+					onpointerdown={(e) => handleKeyPointerDown(e, { kind: 'bytes', bytes: arrow('right'), label: '→' })}
+					onclick={() => { if (!suppressClick && !disabled) onSend({ kind: 'bytes', bytes: arrow('right'), label: '→' }); }}
+				>→</button>
 			</div>
 
-			<div class="mt-2 flex gap-2 overflow-x-auto pb-1 touch-device:gap-3" role="toolbar" aria-label="Navigation keys">
-				{#each rows.nav as action (action.label)}
-					<button
-						class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2 py-2 touch-device:text-sm touch-device:px-3 touch-device:py-3 disabled:opacity-40"
-						disabled={disabled}
-						title={action.description ?? action.label}
-						aria-label={action.description ? `${action.label} (${action.description})` : action.label}
-						onpointerdown={(e) => handleKeyPointerDown(e, action)}
-						onclick={() => {
-							if (suppressClick || disabled) return;
-							onSend(action);
-						}}
-					>
-						{action.label}
-					</button>
-				{/each}
+			<div class="flex-1"></div>
+
+			{#if disabled}
+				<span class="text-xs text-gray-400 mr-2">Disconnected</span>
+			{/if}
+
+			<!-- Expand button -->
+			<button
+				class="flex items-center gap-1 rounded px-2 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10 transition-colors touch-device:px-3 touch-device:py-2"
+				aria-label="Show more hotkeys"
+				aria-expanded={expanded}
+				onpointerdown={handleTogglePointerDown}
+				onclick={() => { if (!suppressClick) onToggle(); }}
+			>
+				<span>More</span>
+				<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+				</svg>
+			</button>
+		</div>
+	{:else}
+		<!-- Expanded: Full hotkeys panel -->
+		<div class="px-2 py-2">
+			<!-- Header with collapse button -->
+			<div class="flex items-center justify-between mb-2">
+				<span class="text-xs text-gray-400 uppercase tracking-wide">Terminal Hotkeys</span>
+				<button
+					class="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-white/10 transition-colors"
+					aria-label="Collapse hotkeys"
+					aria-expanded={expanded}
+					onpointerdown={handleTogglePointerDown}
+					onclick={() => { if (!suppressClick) onToggle(); }}
+				>
+					<span>Less</span>
+					<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
+					</svg>
+				</button>
 			</div>
 
-			<div class="mt-2 flex gap-2 overflow-x-auto pb-1 touch-device:gap-3" role="toolbar" aria-label="Convenience keys">
-				{#each rows.convenience as action (action.label)}
-					<button
-						class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2 py-2 touch-device:text-sm touch-device:px-3 touch-device:py-3 disabled:opacity-40"
-						disabled={disabled}
-						title={action.description ?? action.label}
-						aria-label={action.description ? `${action.label} (${action.description})` : action.label}
-						onpointerdown={(e) => handleKeyPointerDown(e, action)}
-						onclick={() => {
-							if (suppressClick || disabled) return;
-							onSend(action);
-						}}
-					>
-						{action.label}
-					</button>
-				{/each}
+			<!-- Control keys -->
+			<div class="mb-2">
+				<div class="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Control</div>
+				<div class="flex gap-1.5 flex-wrap" role="toolbar" aria-label="Control keys">
+					{#each rows.base as action (action.label)}
+						<button
+							class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2 py-1.5 touch-device:text-sm touch-device:px-3 touch-device:py-2 disabled:opacity-40"
+							disabled={disabled}
+							title={action.description ?? action.label}
+							aria-label={action.description ? `${action.label} (${action.description})` : action.label}
+							onpointerdown={(e) => handleKeyPointerDown(e, action)}
+							onclick={() => { if (!suppressClick && !disabled) onSend(action); }}
+						>
+							{action.label}
+						</button>
+					{/each}
+				</div>
+			</div>
+
+			<!-- Navigation keys -->
+			<div class="mb-2">
+				<div class="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Navigation</div>
+				<div class="flex gap-1.5 flex-wrap" role="toolbar" aria-label="Navigation keys">
+					{#each rows.nav as action (action.label)}
+						<button
+							class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2 py-1.5 touch-device:text-sm touch-device:px-3 touch-device:py-2 disabled:opacity-40"
+							disabled={disabled}
+							title={action.description ?? action.label}
+							aria-label={action.description ? `${action.label} (${action.description})` : action.label}
+							onpointerdown={(e) => handleKeyPointerDown(e, action)}
+							onclick={() => { if (!suppressClick && !disabled) onSend(action); }}
+						>
+							{action.label}
+						</button>
+					{/each}
+				</div>
+			</div>
+
+			<!-- Convenience keys -->
+			<div>
+				<div class="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Other</div>
+				<div class="flex gap-1.5 flex-wrap" role="toolbar" aria-label="Convenience keys">
+					{#each rows.convenience as action (action.label)}
+						<button
+							class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2 py-1.5 touch-device:text-sm touch-device:px-3 touch-device:py-2 disabled:opacity-40"
+							disabled={disabled}
+							title={action.description ?? action.label}
+							aria-label={action.description ? `${action.label} (${action.description})` : action.label}
+							onpointerdown={(e) => handleKeyPointerDown(e, action)}
+							onclick={() => { if (!suppressClick && !disabled) onSend(action); }}
+						>
+							{action.label}
+						</button>
+					{/each}
+				</div>
 			</div>
 		</div>
 	{/if}
