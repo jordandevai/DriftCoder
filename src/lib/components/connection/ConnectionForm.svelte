@@ -174,7 +174,7 @@
 	}
 </script>
 
-<div class="bg-panel-bg border border-panel-border rounded-lg overflow-hidden">
+<div class="bg-panel-bg border border-panel-border rounded-lg overflow-auto">
 	<div class="flex items-center justify-between px-4 py-3 border-b border-panel-border">
 		<h2 class="text-lg font-medium">
 			{isEditing ? 'Edit Connection' : 'New Connection'}

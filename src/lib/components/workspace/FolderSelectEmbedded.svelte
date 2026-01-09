@@ -217,7 +217,7 @@
 	</div>
 
 	<!-- Main Browser -->
-	<div class="flex-1 bg-editor-bg border border-panel-border rounded-lg overflow-hidden flex flex-col min-h-0">
+	<div class="flex-1 bg-editor-bg border border-panel-border rounded-lg overflow-auto flex flex-col min-h-0">
 		<!-- Path Input -->
 		<form class="flex items-center gap-2 px-2 py-1.5 border-b border-panel-border flex-shrink-0" onsubmit={handlePathSubmit}>
 			<button

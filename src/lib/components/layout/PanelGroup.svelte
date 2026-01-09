@@ -137,7 +137,7 @@
 	{/if}
 
 	<!-- Panel Content -->
-	<div class="flex-1 overflow-hidden relative">
+	<div class="flex-1 overflow-auto relative">
 		{#if group && group.panels.length > 0}
 			<!-- Editor panels: only the active session (editors are session-scoped via fileStore) -->
 			{#each group.panels.filter((p) => p.type === 'editor') as panel (panel.id)}

@@ -12,6 +12,20 @@
 
 
 	onMount(() => {
+		// Scroll focused element into view when keyboard appears on Android
+		function scrollFocusedElementIntoView(): void {
+			if (typeof document === 'undefined') return;
+			const activeElement = document.activeElement as HTMLElement | null;
+			if (!activeElement) return;
+			
+			// Only scroll if it's an input-like element
+			const tagName = activeElement.tagName.toLowerCase();
+			if (tagName !== 'input' && tagName !== 'textarea' && !activeElement.isContentEditable) return;
+			
+			// Use smooth scroll to bring the element into view
+			activeElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		}
+		
 		function updateViewportVars(): void {
 			if (typeof window === 'undefined') return;
 			const root = document.documentElement;
@@ -46,6 +60,13 @@
 		const onFocusChange = () => {
 			updateViewportVars();
 			window.setTimeout(updateViewportVars, 100);
+			
+			// On Android, scroll the focused element into view when keyboard appears
+			const isAndroid = /Android/i.test(navigator.userAgent);
+			if (isAndroid) {
+				window.setTimeout(scrollFocusedElementIntoView, 150);
+				window.setTimeout(scrollFocusedElementIntoView, 300);
+			}
 		};
 		window.addEventListener('focusin', onFocusChange);
 		window.addEventListener('focusout', onFocusChange);

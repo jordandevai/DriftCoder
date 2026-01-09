@@ -1,6 +1,6 @@
 <script lang="ts">
 	interface Props {
-		type?: 'text' | 'password' | 'number' | 'email';
+		type?: 'text' | 'password' | 'number' | 'email' | 'tel' | 'url';
 		value?: string;
 		placeholder?: string;
 		label?: string;
@@ -11,6 +11,7 @@
 		name?: string;
 		oninput?: (e: Event) => void;
 		onchange?: (e: Event) => void;
+		inputmode?: 'text' | 'numeric' | 'tel' | 'email' | 'url' | 'none';
 	}
 
 	let {
@@ -24,7 +25,8 @@
 		id,
 		name,
 		oninput,
-		onchange
+		onchange,
+		inputmode
 	}: Props = $props();
 
 	const generatedId = `input-${Math.random().toString(36).slice(2)}`;
@@ -50,6 +52,8 @@
 		bind:value
 		{oninput}
 		{onchange}
+		{inputmode}
+		autocomplete="off"
 		class="w-full px-3 py-2 bg-editor-bg border rounded text-editor-fg placeholder-gray-500 focus:outline-none focus:ring-1 transition-colors duration-150
 			{error ? 'border-error focus:border-error focus:ring-error' : 'border-panel-border focus:border-accent focus:ring-accent'}
 			{disabled ? 'opacity-50 cursor-not-allowed' : ''}"

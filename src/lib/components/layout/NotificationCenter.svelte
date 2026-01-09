@@ -128,7 +128,7 @@
 		</div>
 
 		<div class="grid grid-cols-1 lg:grid-cols-2 gap-3 min-h-[360px]">
-			<div class="border border-panel-border rounded-lg overflow-hidden">
+			<div class="border border-panel-border rounded-lg overflow-auto">
 				{#if notifications.length === 0}
 					<div class="p-4 text-gray-400 text-sm">No notifications.</div>
 				{:else}
@@ -159,7 +159,7 @@
 				{/if}
 			</div>
 
-			<div class="border border-panel-border rounded-lg overflow-hidden">
+			<div class="border border-panel-border rounded-lg overflow-auto">
 				{#if !selected}
 					<div class="p-4 text-gray-400 text-sm">Select a notification to view details.</div>
 				{:else}

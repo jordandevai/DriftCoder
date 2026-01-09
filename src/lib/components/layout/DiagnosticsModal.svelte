@@ -105,7 +105,7 @@
 			</div>
 		</div>
 
-		<div class="border border-panel-border rounded-lg overflow-hidden">
+		<div class="border border-panel-border rounded-lg overflow-auto">
 			<div class="max-h-[70vh] overflow-auto">
 				<table class="w-full text-xs">
 					<thead class="sticky top-0 bg-panel-bg border-b border-panel-border">
@@ -148,7 +148,7 @@
 			</div>
 		</div>
 
-		<details class="border border-panel-border rounded-lg overflow-hidden">
+		<details class="border border-panel-border rounded-lg overflow-auto">
 			<summary class="px-3 py-2 text-xs text-gray-400 cursor-pointer select-none bg-panel-bg border-b border-panel-border">
 				Trusted Host Keys {hostKeys ? `(${hostKeys.length})` : ''}
 			</summary>

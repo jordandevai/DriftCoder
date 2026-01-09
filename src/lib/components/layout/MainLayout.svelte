@@ -243,7 +243,7 @@
 		<ProjectTabs onaddproject={handleAddProject} />
 
 		<!-- Main IDE Content -->
-		<div class="flex-1 flex overflow-hidden">
+		<div class="flex-1 flex overflow-auto">
 			<!-- File Tree Sidebar -->
 			{#if !$layoutStore.fileTreeCollapsed}
 				<div
@@ -285,7 +285,7 @@
 			{/if}
 
 			<!-- Panel Area -->
-			<div class="flex-1 overflow-hidden">
+			<div class="flex-1 overflow-auto">
 				<PanelGroup groupId="main" />
 			</div>
 		</div>

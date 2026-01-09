@@ -44,7 +44,7 @@
 		onclick={handleBackdropClick}
 	>
 		<div
-			class="bg-panel-bg border border-panel-border rounded-lg shadow-xl w-full {sizeClasses[size]} max-h-[90vh] overflow-hidden flex flex-col"
+			class="bg-panel-bg border border-panel-border rounded-lg shadow-xl w-full {sizeClasses[size]} max-h-[90vh] overflow-auto flex flex-col"
 		>
 			{#if title}
 				<div class="flex items-center justify-between px-4 py-3 border-b border-panel-border flex-shrink-0">

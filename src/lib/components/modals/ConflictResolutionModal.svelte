@@ -193,7 +193,7 @@
 				The file changed on the server since it was opened. Review differences and choose how to proceed.
 			</div>
 
-			<div class="border border-panel-border rounded-lg overflow-hidden h-[60vh] bg-editor-bg">
+			<div class="border border-panel-border rounded-lg overflow-auto h-[60vh] bg-editor-bg">
 				{#if loading}
 					<div class="h-full flex items-center justify-center text-gray-400 text-sm">Loading latest version…</div>
 				{:else if remoteMtime === null}
