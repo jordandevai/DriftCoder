@@ -707,6 +707,23 @@ function createFileStore() {
 			}
 		},
 
+		setScrollPosition(path: string, scrollTop: number): void {
+			const session = get(activeSession);
+			if (!session) return;
+
+			updateFileState(session.id, (s) => {
+				const scrollPositions = new Map(s.scrollPositions ?? []);
+				scrollPositions.set(path, scrollTop);
+				return { ...s, scrollPositions };
+			});
+		},
+
+		getScrollPosition(path: string): number {
+			const session = get(activeSession);
+			if (!session) return 0;
+			return session.fileState.scrollPositions?.get(path) ?? 0;
+		},
+
 		async createFile(path: string): Promise<void> {
 			const session = requireActiveSession();
 			const connId = session.connectionId;

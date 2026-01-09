@@ -5,6 +5,7 @@
 	import { terminalStore } from '$stores/terminal';
 	import { notificationsStore } from '$stores/notifications';
 	import { connectionStore } from '$stores/connection';
+	import { confirmStore } from '$stores/confirm';
 	import TabBar from './TabBar.svelte';
 	import EditorPanel from '$components/panels/EditorPanel.svelte';
 	import TerminalPanel from '$components/panels/TerminalPanel.svelte';
@@ -82,13 +83,28 @@
 		return { connectionId, status };
 	}
 
-	function handleTabClose(panelId: string) {
+	async function handleTabClose(panelId: string) {
 		if (!group) return;
 
 		const panel = group.panels.find((p) => p.id === panelId);
+
+		// Check for unsaved changes in editor tabs
 		if (panel?.type === 'editor' && panel.filePath) {
+			const file = $fileStore.openFiles.get(panel.filePath);
+			if (file?.dirty) {
+				const fileName = panel.filePath.split('/').pop() || panel.filePath;
+				const confirmed = await confirmStore.confirm({
+					title: 'Close File',
+					message: `"${fileName}" has unsaved changes. Close anyway?`,
+					confirmText: 'Close',
+					cancelText: 'Cancel',
+					destructive: true
+				});
+				if (!confirmed) return;
+			}
 			fileStore.closeFile(panel.filePath);
 		}
+
 		if (panel?.type === 'terminal' && panel.terminalId) {
 			terminalStore.closeTerminal(panel.terminalId).catch((error) => {
 				console.error('Failed to close terminal:', error);

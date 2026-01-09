@@ -91,10 +91,10 @@
 >
 	<!-- Collapsed: Show quick-access keys + expand handle -->
 	{#if !expanded}
-		<div class="flex items-center gap-1 px-2 py-1.5">
+		<div class="flex items-center gap-2 px-2 py-1.5 touch-device:gap-3">
 			<!-- Quick access keys when collapsed -->
 			<button
-				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2 py-1.5 touch-device:px-3 touch-device:py-2 disabled:opacity-40"
+				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-3 py-2 touch-device:px-4 touch-device:py-2.5 disabled:opacity-40"
 				disabled={disabled}
 				title="SIGINT (interrupt)"
 				onpointerdown={(e) => handleKeyPointerDown(e, { kind: 'bytes', bytes: [ctrl('c')], label: 'Ctrl+C' })}
@@ -103,7 +103,7 @@
 				Ctrl+C
 			</button>
 			<button
-				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2 py-1.5 touch-device:px-3 touch-device:py-2 disabled:opacity-40"
+				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-3 py-2 touch-device:px-4 touch-device:py-2.5 disabled:opacity-40"
 				disabled={disabled}
 				title="Escape"
 				onpointerdown={(e) => handleKeyPointerDown(e, { kind: 'bytes', bytes: [ESC], label: 'Esc' })}
@@ -112,7 +112,7 @@
 				Esc
 			</button>
 			<button
-				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2 py-1.5 touch-device:px-3 touch-device:py-2 disabled:opacity-40"
+				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-3 py-2 touch-device:px-4 touch-device:py-2.5 disabled:opacity-40"
 				disabled={disabled}
 				title="Tab"
 				onpointerdown={(e) => handleKeyPointerDown(e, { kind: 'bytes', bytes: [0x09], label: 'Tab' })}
@@ -122,30 +122,30 @@
 			</button>
 
 			<!-- Arrow keys cluster -->
-			<div class="flex gap-0.5 ml-1">
+			<div class="flex gap-1 ml-1 touch-device:gap-2">
 				<button
-					class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-1.5 py-1.5 touch-device:px-2 touch-device:py-2 disabled:opacity-40"
+					class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2.5 py-2 touch-device:px-3 touch-device:py-2.5 disabled:opacity-40"
 					disabled={disabled}
 					title="Up arrow"
 					onpointerdown={(e) => handleKeyPointerDown(e, { kind: 'bytes', bytes: arrow('up'), label: '↑' })}
 					onclick={() => { if (!suppressClick && !disabled) onSend({ kind: 'bytes', bytes: arrow('up'), label: '↑' }); }}
 				>↑</button>
 				<button
-					class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-1.5 py-1.5 touch-device:px-2 touch-device:py-2 disabled:opacity-40"
+					class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2.5 py-2 touch-device:px-3 touch-device:py-2.5 disabled:opacity-40"
 					disabled={disabled}
 					title="Down arrow"
 					onpointerdown={(e) => handleKeyPointerDown(e, { kind: 'bytes', bytes: arrow('down'), label: '↓' })}
 					onclick={() => { if (!suppressClick && !disabled) onSend({ kind: 'bytes', bytes: arrow('down'), label: '↓' }); }}
 				>↓</button>
 				<button
-					class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-1.5 py-1.5 touch-device:px-2 touch-device:py-2 disabled:opacity-40"
+					class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2.5 py-2 touch-device:px-3 touch-device:py-2.5 disabled:opacity-40"
 					disabled={disabled}
 					title="Left arrow"
 					onpointerdown={(e) => handleKeyPointerDown(e, { kind: 'bytes', bytes: arrow('left'), label: '←' })}
 					onclick={() => { if (!suppressClick && !disabled) onSend({ kind: 'bytes', bytes: arrow('left'), label: '←' }); }}
 				>←</button>
 				<button
-					class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-1.5 py-1.5 touch-device:px-2 touch-device:py-2 disabled:opacity-40"
+					class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2.5 py-2 touch-device:px-3 touch-device:py-2.5 disabled:opacity-40"
 					disabled={disabled}
 					title="Right arrow"
 					onpointerdown={(e) => handleKeyPointerDown(e, { kind: 'bytes', bytes: arrow('right'), label: '→' })}

@@ -145,6 +145,8 @@ export interface SessionFileState {
 	expandedPaths: Set<string>;
 	openFiles: Map<string, OpenFile>;
 	activeFilePath: string | null;
+	/** Editor scroll positions keyed by file path */
+	scrollPositions?: Map<string, number>;
 }
 
 export interface SessionLayoutState {
@@ -170,6 +172,11 @@ export interface Session {
 	 * Keyed by `terminalId`.
 	 */
 	terminalHotkeysExpandedById?: Record<string, boolean>;
+	/**
+	 * Per-editor UI state for the Hotkeys bar.
+	 * Keyed by `filePath`.
+	 */
+	editorHotkeysExpandedByPath?: Record<string, boolean>;
 	/**
 	 * Stable ordinal per terminal tab (used for deterministic tmux window names like `term1`, `term2`).
 	 * Keyed by `terminalId`.

@@ -14,6 +14,8 @@
 	import Button from '$components/shared/Button.svelte';
 	import { confirmStore } from '$stores/confirm';
 	import { promptStore } from '$stores/prompt';
+	import { workspaceStore, activeSession } from '$stores/workspace';
+	import EditorHotkeysBar from '$components/editor/EditorHotkeysBar.svelte';
 
 	interface Props {
 		filePath: string;
@@ -33,6 +35,35 @@
 	const languageCompartment = new Compartment();
 	const wrapCompartment = new Compartment();
 	const fontCompartment = new Compartment();
+
+	// Touch device detection for hotkeys bar auto-show
+	function isCoarsePointer(): boolean {
+		if (typeof window === 'undefined') return false;
+		try {
+			return window.matchMedia?.('(pointer: coarse)')?.matches ?? false;
+		} catch {
+			return false;
+		}
+	}
+
+	// Store-backed expanded state for editor hotkeys (auto-show on touch devices)
+	const hotkeysExpanded = $derived.by(() => {
+		const session = $activeSession;
+		if (!session) return isCoarsePointer();
+		const stored = session.editorHotkeysExpandedByPath?.[filePath];
+		if (typeof stored === 'boolean') return stored;
+		return isCoarsePointer();
+	});
+
+	// Whether the hotkeys bar should be visible at all (only on touch devices by default)
+	const showHotkeysBar = $derived(isCoarsePointer());
+
+	function toggleHotkeys(): void {
+		const session = $activeSession;
+		if (!session) return;
+		workspaceStore.setEditorHotkeysExpanded(session.id, filePath, !hotkeysExpanded);
+		queueMicrotask(() => editorView?.focus());
+	}
 
 	// Dark theme
 	const darkTheme = EditorView.theme({
@@ -139,6 +170,27 @@
 
 		currentLanguage = null;
 		applyLanguage(language);
+
+		// Restore saved scroll position after editor is ready
+		queueMicrotask(() => {
+			if (editorView) {
+				const savedScroll = fileStore.getScrollPosition(filePath);
+				if (savedScroll > 0) {
+					editorView.scrollDOM.scrollTop = savedScroll;
+				}
+			}
+		});
+
+		// Save scroll position on scroll (debounced)
+		let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
+		editorView.scrollDOM.addEventListener('scroll', () => {
+			if (scrollTimeout) clearTimeout(scrollTimeout);
+			scrollTimeout = setTimeout(() => {
+				if (editorView) {
+					fileStore.setScrollPosition(filePath, editorView.scrollDOM.scrollTop);
+				}
+			}, 150);
+		});
 	}
 
 	async function handleSave() {
@@ -200,6 +252,8 @@
 
 	onDestroy(() => {
 		if (editorView) {
+			// Save scroll position before destroying
+			fileStore.setScrollPosition(filePath, editorView.scrollDOM.scrollTop);
 			editorView.destroy();
 		}
 	});
@@ -283,11 +337,23 @@
 			</div>
 		</div>
 	{/if}
-	<div bind:this={editorContainer} class="flex-1 h-full w-full"></div>
+	<div bind:this={editorContainer} class="flex-1 h-full w-full min-h-0"></div>
 	{#if !file}
 		<div class="absolute inset-0 flex items-center justify-center text-gray-500">
 			<p>Loading file...</p>
 		</div>
+	{/if}
+
+	<!-- Touch-friendly editor actions bar (visible on touch devices) -->
+	{#if showHotkeysBar}
+		<EditorHotkeysBar
+			expanded={hotkeysExpanded}
+			disabled={!file}
+			dirty={file?.dirty ?? false}
+			{editorView}
+			onToggle={toggleHotkeys}
+			onSave={handleSave}
+		/>
 	{/if}
 </div>
 

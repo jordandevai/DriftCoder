@@ -467,6 +467,21 @@ function createWorkspaceStore() {
 			});
 		},
 
+		setEditorHotkeysExpanded(sessionId: string, filePath: string, expanded: boolean): void {
+			update((s) => {
+				const session = s.sessions.get(sessionId);
+				if (!session) return s;
+
+				const current = session.editorHotkeysExpandedByPath ?? {};
+				if (current[filePath] === expanded) return s;
+
+				const next = { ...current, [filePath]: expanded };
+				const newSessions = new Map(s.sessions);
+				newSessions.set(sessionId, { ...session, editorHotkeysExpandedByPath: next });
+				return { ...s, sessions: newSessions };
+			});
+		},
+
 		/**
 		 * Reserve a stable ordinal for a terminal ID before the backend terminal is created.
 		 * Prevents races where multiple terminals compute the same "next ordinal" and end up
