@@ -109,51 +109,63 @@
 		<div class="flex items-center gap-2 px-2 py-1.5 touch-device:gap-3">
 			<!-- Save button with dirty indicator -->
 			<button
-				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-3 py-2 touch-device:px-4 touch-device:py-2.5 disabled:opacity-40 flex items-center gap-1.5"
+				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors p-2 touch-device:p-2.5 disabled:opacity-40 flex items-center justify-center relative"
 				disabled={disabled}
 				title="Save file (Ctrl+S)"
+				aria-label="Save"
 				onpointerdown={(e) => handleActionPointerDown(e, { kind: 'save', label: 'Save' })}
 				onclick={() => {
 					if (!suppressClick && !disabled) executeAction({ kind: 'save', label: 'Save' });
 				}}
 			>
-				Save
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+				</svg>
 				{#if dirty}
-					<span class="w-1.5 h-1.5 rounded-full bg-accent-primary"></span>
+					<span class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent"></span>
 				{/if}
 			</button>
 			<button
-				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-3 py-2 touch-device:px-4 touch-device:py-2.5 disabled:opacity-40"
+				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors p-2 touch-device:p-2.5 disabled:opacity-40 flex items-center justify-center"
 				disabled={disabled || !canUndo}
 				title="Undo (Ctrl+Z)"
+				aria-label="Undo"
 				onpointerdown={(e) => handleActionPointerDown(e, { kind: 'undo', label: 'Undo' })}
 				onclick={() => {
 					if (!suppressClick && !disabled && canUndo) executeAction({ kind: 'undo', label: 'Undo' });
 				}}
 			>
-				Undo
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+				</svg>
 			</button>
 			<button
-				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-3 py-2 touch-device:px-4 touch-device:py-2.5 disabled:opacity-40"
+				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors p-2 touch-device:p-2.5 disabled:opacity-40 flex items-center justify-center"
 				disabled={disabled || !canRedo}
 				title="Redo (Ctrl+Shift+Z)"
+				aria-label="Redo"
 				onpointerdown={(e) => handleActionPointerDown(e, { kind: 'redo', label: 'Redo' })}
 				onclick={() => {
 					if (!suppressClick && !disabled && canRedo) executeAction({ kind: 'redo', label: 'Redo' });
 				}}
 			>
-				Redo
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" />
+				</svg>
 			</button>
 			<button
-				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-3 py-2 touch-device:px-4 touch-device:py-2.5 disabled:opacity-40"
+				class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors p-2 touch-device:p-2.5 disabled:opacity-40 flex items-center justify-center"
 				disabled={disabled}
 				title="Find (Ctrl+F)"
+				aria-label="Find"
 				onpointerdown={(e) => handleActionPointerDown(e, { kind: 'find', label: 'Find' })}
 				onclick={() => {
 					if (!suppressClick && !disabled) executeAction({ kind: 'find', label: 'Find' });
 				}}
 			>
-				Find
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+				</svg>
 			</button>
 
 			<div class="flex-1"></div>
@@ -204,7 +216,7 @@
 			<div class="flex gap-1.5 flex-wrap" role="toolbar" aria-label="Editor actions">
 				{#each actions.primary as action (action.label)}
 					<button
-						class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs px-2 py-1.5 touch-device:text-sm touch-device:px-3 touch-device:py-2 disabled:opacity-40 flex items-center gap-1.5"
+						class="shrink-0 rounded bg-white/10 hover:bg-white/20 transition-colors p-2 touch-device:p-2.5 disabled:opacity-40 flex items-center justify-center relative"
 						disabled={isActionDisabled(action)}
 						title={action.description ?? action.label}
 						aria-label={action.description ? `${action.label} (${action.description})` : action.label}
@@ -213,9 +225,29 @@
 							if (!suppressClick && !isActionDisabled(action)) executeAction(action);
 						}}
 					>
-						{action.label}
-						{#if action.kind === 'save' && dirty}
-							<span class="w-1.5 h-1.5 rounded-full bg-accent-primary"></span>
+						{#if action.kind === 'save'}
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+							</svg>
+							{#if dirty}
+								<span class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent"></span>
+							{/if}
+						{:else if action.kind === 'undo'}
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+							</svg>
+						{:else if action.kind === 'redo'}
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" />
+							</svg>
+						{:else if action.kind === 'find'}
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+							</svg>
+						{:else if action.kind === 'format'}
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" />
+							</svg>
 						{/if}
 					</button>
 				{/each}

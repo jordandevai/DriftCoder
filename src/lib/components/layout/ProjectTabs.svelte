@@ -62,7 +62,7 @@
 			onclick={() => switchToSession(session.id)}
 			onmousedown={(e) => handleMiddleClick(e, session)}
 			onkeydown={(e) => e.key === 'Enter' && switchToSession(session.id)}
-			title="{session.connectionProfile.host}:{session.projectRoot}"
+			title="{session.connectionProfile.name}:{session.projectRoot}"
 		>
 			<!-- Connection status indicator -->
 			<span class="w-2 h-2 rounded-full bg-green-500 flex-shrink-0 self-center"></span>
@@ -71,7 +71,7 @@
 			<div class="flex flex-col min-w-0 flex-1">
 				<!-- Connection name (small) -->
 				<span class="text-[10px] text-gray-500 truncate leading-tight">
-					{session.connectionProfile.host}
+					{session.connectionProfile.name}
 				</span>
 				<!-- Folder name with icon -->
 				<div class="flex items-center gap-1.5">

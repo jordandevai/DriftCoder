@@ -92,6 +92,48 @@
 		},
 		'.cm-line': {
 			padding: '0 8px'
+		},
+		// Search panel styles
+		'.cm-panel': {
+			backgroundColor: 'rgb(var(--c-panel-bg))',
+			color: 'rgb(var(--c-editor-fg))'
+		},
+		'.cm-panel.cm-search': {
+			padding: '8px',
+			borderTop: '1px solid rgb(var(--c-panel-border))'
+		},
+		'.cm-panel.cm-search input, .cm-panel.cm-search button, .cm-panel.cm-search label': {
+			color: 'rgb(var(--c-editor-fg))'
+		},
+		'.cm-panel.cm-search input[type="text"]': {
+			backgroundColor: 'rgb(var(--c-editor-bg))',
+			border: '1px solid rgb(var(--c-panel-border))',
+			borderRadius: '4px',
+			padding: '4px 8px',
+			color: 'rgb(var(--c-editor-fg))'
+		},
+		'.cm-panel.cm-search input[type="text"]:focus': {
+			borderColor: 'rgb(var(--c-accent))',
+			outline: 'none'
+		},
+		'.cm-panel.cm-search button': {
+			backgroundColor: 'rgb(var(--c-panel-active))',
+			border: '1px solid rgb(var(--c-panel-border))',
+			borderRadius: '4px',
+			padding: '4px 8px',
+			cursor: 'pointer'
+		},
+		'.cm-panel.cm-search button:hover': {
+			backgroundColor: 'rgb(var(--c-accent))'
+		},
+		'.cm-panel.cm-search input[type="checkbox"]': {
+			accentColor: 'rgb(var(--c-accent))'
+		},
+		'.cm-searchMatch': {
+			backgroundColor: 'rgba(var(--c-warning), 0.3)'
+		},
+		'.cm-searchMatch-selected': {
+			backgroundColor: 'rgba(var(--c-warning), 0.6)'
 		}
 	});
 
