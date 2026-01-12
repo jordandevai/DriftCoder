@@ -14,6 +14,7 @@
 	import Button from '$components/shared/Button.svelte';
 	import { confirmStore } from '$stores/confirm';
 	import { promptStore } from '$stores/prompt';
+	import EditorHotkeysBar from '$components/editor/EditorHotkeysBar.svelte';
 
 	interface Props {
 		filePath: string;
@@ -359,6 +360,12 @@
 			<p>Loading file...</p>
 		</div>
 	{/if}
+	<EditorHotkeysBar
+		disabled={!file}
+		dirty={file?.dirty ?? false}
+		{editorView}
+		onSave={handleSave}
+	/>
 </div>
 
 <style>
