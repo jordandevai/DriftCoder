@@ -14,7 +14,6 @@
 	import Button from '$components/shared/Button.svelte';
 	import { confirmStore } from '$stores/confirm';
 	import { promptStore } from '$stores/prompt';
-	import { workspaceStore, activeSession } from '$stores/workspace';
 	import EditorHotkeysBar from '$components/editor/EditorHotkeysBar.svelte';
 
 	interface Props {
@@ -35,32 +34,6 @@
 	const languageCompartment = new Compartment();
 	const wrapCompartment = new Compartment();
 	const fontCompartment = new Compartment();
-
-	// Touch device detection for hotkeys bar auto-show
-	function isCoarsePointer(): boolean {
-		if (typeof window === 'undefined') return false;
-		try {
-			return window.matchMedia?.('(pointer: coarse)')?.matches ?? false;
-		} catch {
-			return false;
-		}
-	}
-
-	// Store-backed expanded state for editor hotkeys (auto-show on touch devices)
-	const hotkeysExpanded = $derived.by(() => {
-		const session = $activeSession;
-		if (!session) return isCoarsePointer();
-		const stored = session.editorHotkeysExpandedByPath?.[filePath];
-		if (typeof stored === 'boolean') return stored;
-		return isCoarsePointer();
-	});
-
-	function toggleHotkeys(): void {
-		const session = $activeSession;
-		if (!session) return;
-		workspaceStore.setEditorHotkeysExpanded(session.id, filePath, !hotkeysExpanded);
-		queueMicrotask(() => editorView?.focus());
-	}
 
 	// Dark theme
 	const darkTheme = EditorView.theme({
@@ -96,41 +69,91 @@
 		// Search panel styles
 		'.cm-panel': {
 			backgroundColor: 'rgb(var(--c-panel-bg))',
-			color: 'rgb(var(--c-editor-fg))'
+			color: 'rgb(var(--c-editor-fg))',
+			fontFamily: 'var(--font-sans)',
+			fontSize: '12px'
 		},
 		'.cm-panel.cm-search': {
-			padding: '8px',
-			borderTop: '1px solid rgb(var(--c-panel-border))'
+			padding: '8px 12px',
+			borderTop: '1px solid rgb(var(--c-panel-border))',
+			display: 'flex',
+			flexWrap: 'wrap',
+			alignItems: 'center',
+			gap: '8px'
 		},
-		'.cm-panel.cm-search input, .cm-panel.cm-search button, .cm-panel.cm-search label': {
-			color: 'rgb(var(--c-editor-fg))'
+		'.cm-panel.cm-search br': {
+			display: 'none'
 		},
-		'.cm-panel.cm-search input[type="text"]': {
+		'.cm-panel.cm-search label': {
+			display: 'inline-flex',
+			alignItems: 'center',
+			gap: '4px',
+			color: 'rgb(var(--c-editor-fg))',
+			fontSize: '11px',
+			cursor: 'pointer',
+			userSelect: 'none'
+		},
+		'.cm-panel.cm-search input[type="checkbox"]': {
+			accentColor: 'rgb(var(--c-accent))',
+			width: '14px',
+			height: '14px',
+			cursor: 'pointer'
+		},
+		'.cm-textfield': {
 			backgroundColor: 'rgb(var(--c-editor-bg))',
 			border: '1px solid rgb(var(--c-panel-border))',
 			borderRadius: '4px',
-			padding: '4px 8px',
-			color: 'rgb(var(--c-editor-fg))'
+			padding: '6px 10px',
+			color: 'rgb(var(--c-editor-fg))',
+			fontSize: '12px',
+			outline: 'none',
+			transition: 'border-color 150ms, box-shadow 150ms',
+			minWidth: '120px'
 		},
-		'.cm-panel.cm-search input[type="text"]:focus': {
+		'.cm-textfield:focus': {
 			borderColor: 'rgb(var(--c-accent))',
-			outline: 'none'
+			boxShadow: '0 0 0 1px rgb(var(--c-accent))'
 		},
-		'.cm-panel.cm-search button': {
+		'.cm-textfield::placeholder': {
+			color: 'rgb(107 114 128)'
+		},
+		'.cm-button': {
 			backgroundColor: 'rgb(var(--c-panel-active))',
 			border: '1px solid rgb(var(--c-panel-border))',
 			borderRadius: '4px',
+			padding: '5px 10px',
+			color: 'rgb(var(--c-editor-fg))',
+			fontSize: '11px',
+			fontWeight: '500',
+			cursor: 'pointer',
+			transition: 'background-color 150ms, border-color 150ms'
+		},
+		'.cm-button:hover': {
+			backgroundColor: 'rgb(var(--c-accent))',
+			borderColor: 'rgb(var(--c-accent))'
+		},
+		'.cm-button:active': {
+			backgroundColor: 'rgb(var(--c-accent-hover))'
+		},
+		'.cm-panel.cm-search button[name="close"]': {
+			backgroundColor: 'transparent',
+			border: 'none',
+			borderRadius: '4px',
 			padding: '4px 8px',
-			cursor: 'pointer'
+			color: 'rgb(var(--c-editor-fg))',
+			fontSize: '16px',
+			lineHeight: '1',
+			cursor: 'pointer',
+			opacity: '0.7',
+			marginLeft: 'auto'
 		},
-		'.cm-panel.cm-search button:hover': {
-			backgroundColor: 'rgb(var(--c-accent))'
-		},
-		'.cm-panel.cm-search input[type="checkbox"]': {
-			accentColor: 'rgb(var(--c-accent))'
+		'.cm-panel.cm-search button[name="close"]:hover': {
+			backgroundColor: 'rgba(255, 255, 255, 0.1)',
+			opacity: '1'
 		},
 		'.cm-searchMatch': {
-			backgroundColor: 'rgba(var(--c-warning), 0.3)'
+			backgroundColor: 'rgba(var(--c-warning), 0.3)',
+			borderRadius: '2px'
 		},
 		'.cm-searchMatch-selected': {
 			backgroundColor: 'rgba(var(--c-warning), 0.6)'
@@ -383,13 +406,11 @@
 		</div>
 	{/if}
 
-	<!-- Touch-friendly editor actions bar -->
+	<!-- Editor actions bar -->
 	<EditorHotkeysBar
-		expanded={hotkeysExpanded}
 		disabled={!file}
 		dirty={file?.dirty ?? false}
 		{editorView}
-		onToggle={toggleHotkeys}
 		onSave={handleSave}
 	/>
 </div>
