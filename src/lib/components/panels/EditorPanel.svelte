@@ -74,41 +74,53 @@
 			fontSize: '12px'
 		},
 		'.cm-panel.cm-search': {
-			padding: '8px 12px',
+			padding: '10px 12px',
 			borderTop: '1px solid rgb(var(--c-panel-border))',
 			display: 'flex',
 			flexWrap: 'wrap',
 			alignItems: 'center',
-			gap: '8px'
+			gap: '6px 8px',
+			position: 'relative'
 		},
+		// Use <br> as a flex line break for two-row layout
 		'.cm-panel.cm-search br': {
-			display: 'none'
+			display: 'block',
+			width: '100%',
+			height: '0',
+			margin: '2px 0'
 		},
 		'.cm-panel.cm-search label': {
 			display: 'inline-flex',
 			alignItems: 'center',
 			gap: '4px',
-			color: 'rgb(var(--c-editor-fg))',
+			color: 'rgba(var(--c-editor-fg), 0.7)',
 			fontSize: '11px',
 			cursor: 'pointer',
-			userSelect: 'none'
+			userSelect: 'none',
+			padding: '4px 6px',
+			borderRadius: '4px',
+			transition: 'background-color 150ms'
+		},
+		'.cm-panel.cm-search label:hover': {
+			backgroundColor: 'rgba(255, 255, 255, 0.05)'
 		},
 		'.cm-panel.cm-search input[type="checkbox"]': {
 			accentColor: 'rgb(var(--c-accent))',
-			width: '14px',
-			height: '14px',
+			width: '13px',
+			height: '13px',
 			cursor: 'pointer'
 		},
 		'.cm-textfield': {
 			backgroundColor: 'rgb(var(--c-editor-bg))',
 			border: '1px solid rgb(var(--c-panel-border))',
 			borderRadius: '4px',
-			padding: '6px 10px',
+			padding: '7px 12px',
 			color: 'rgb(var(--c-editor-fg))',
 			fontSize: '12px',
 			outline: 'none',
 			transition: 'border-color 150ms, box-shadow 150ms',
-			minWidth: '120px'
+			width: '200px',
+			flexShrink: '0'
 		},
 		'.cm-textfield:focus': {
 			borderColor: 'rgb(var(--c-accent))',
@@ -121,7 +133,7 @@
 			backgroundColor: 'rgb(var(--c-panel-active)) !important',
 			border: '1px solid rgb(var(--c-panel-border)) !important',
 			borderRadius: '4px',
-			padding: '5px 10px',
+			padding: '6px 12px',
 			color: 'rgb(var(--c-editor-fg)) !important',
 			fontSize: '11px',
 			fontWeight: '500',
@@ -137,16 +149,18 @@
 			backgroundColor: 'rgb(var(--c-accent-hover)) !important'
 		},
 		'.cm-panel.cm-search button[name="close"]': {
+			position: 'absolute',
+			top: '10px',
+			right: '8px',
 			backgroundColor: 'transparent !important',
 			border: 'none !important',
 			borderRadius: '4px',
 			padding: '4px 8px',
 			color: 'rgb(var(--c-editor-fg)) !important',
-			fontSize: '16px',
+			fontSize: '18px',
 			lineHeight: '1',
 			cursor: 'pointer',
-			opacity: '0.7',
-			marginLeft: 'auto'
+			opacity: '0.5'
 		},
 		'.cm-panel.cm-search button[name="close"]:hover': {
 			backgroundColor: 'rgba(255, 255, 255, 0.1) !important',

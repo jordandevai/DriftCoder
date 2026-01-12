@@ -21,7 +21,10 @@
 			// Only scroll if it's an input-like element
 			const tagName = activeElement.tagName.toLowerCase();
 			if (tagName !== 'input' && tagName !== 'textarea' && !activeElement.isContentEditable) return;
-			
+
+			// Skip CodeMirror editor elements - CM handles its own scroll management
+			if (activeElement.closest('.cm-editor')) return;
+
 			// Use smooth scroll to bring the element into view
 			activeElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
 		}
