@@ -126,7 +126,7 @@
 
 <div
 	class="w-screen bg-editor-bg text-editor-fg"
-	style="height: 100dvh; overflow: auto;"
+	style="height: 100dvh; overflow: hidden;"
 >
 	{@render children()}
 </div>
