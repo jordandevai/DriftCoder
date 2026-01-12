@@ -264,9 +264,18 @@
 			}
 		});
 
+		// Log pointer/mouse events to catch scroll resets
+		editorView.contentDOM.addEventListener('pointerdown', () => {
+			debugLog(`[PTRDOWN] scroll: ${editorView!.scrollDOM.scrollTop}`);
+		}, { capture: true });
+
+		editorView.contentDOM.addEventListener('mousedown', () => {
+			debugLog(`[MOUSEDOWN] scroll: ${editorView!.scrollDOM.scrollTop}`);
+		}, { capture: true });
+
 		// Log focus events on the editor
 		editorView.contentDOM.addEventListener('focus', () => {
-			debugLog(`[FOCUS] editor focused, scroll: ${editorView!.scrollDOM.scrollTop}`);
+			debugLog(`[FOCUS] scroll: ${editorView!.scrollDOM.scrollTop}`);
 		});
 
 		// Save scroll position on scroll (debounced)
