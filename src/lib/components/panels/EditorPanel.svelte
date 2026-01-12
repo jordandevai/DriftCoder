@@ -345,10 +345,15 @@
 			selection: {
 				anchor: Math.min(selection.main.anchor, content.length),
 				head: Math.min(selection.main.head, content.length)
-			}
+			},
+			scrollIntoView: false
 		});
 		suppressStoreUpdate = false;
-		editorView.scrollDOM.scrollTop = scrollTop;
+		requestAnimationFrame(() => {
+			if (editorView) {
+				editorView.scrollDOM.scrollTop = scrollTop;
+			}
+		});
 	}
 
 	// Keep editor instance stable across reactivity changes
