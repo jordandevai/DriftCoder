@@ -14,7 +14,6 @@
 	import Button from '$components/shared/Button.svelte';
 	import { confirmStore } from '$stores/confirm';
 	import { promptStore } from '$stores/prompt';
-	import EditorHotkeysBar from '$components/editor/EditorHotkeysBar.svelte';
 
 	interface Props {
 		filePath: string;
@@ -23,16 +22,10 @@
 	let { filePath }: Props = $props();
 
 	let editorContainer = $state<HTMLDivElement | null>(null);
-	let editorView = $state<EditorView | null>(null);
+	let editorView: EditorView | null = null;
 	let currentLanguage = $state<string | null>(null);
 	let suppressStoreUpdate = false;
 	let languageLoadVersion = 0;
-	let debugLogs = $state<string[]>([]);
-
-	function debugLog(msg: string) {
-		debugLogs = [...debugLogs.slice(-19), msg];
-		console.log(msg);
-	}
 
 	const file = $derived($fileStore.openFiles.get(filePath));
 	const wordWrap = $derived($settingsStore.wordWrap);
@@ -75,62 +68,25 @@
 		// Search panel styles
 		'.cm-panel': {
 			backgroundColor: 'rgb(var(--c-panel-bg))',
-			color: 'rgb(var(--c-editor-fg))',
-			fontFamily: 'var(--font-sans)',
-			fontSize: '12px'
+			color: 'rgb(var(--c-editor-fg))'
 		},
 		'.cm-panel.cm-search': {
-			padding: '10px 12px',
-			borderTop: '1px solid rgb(var(--c-panel-border))',
-			display: 'flex',
-			flexWrap: 'wrap',
-			alignItems: 'center',
-			gap: '6px 8px',
-			position: 'relative'
+			padding: '8px',
+			borderTop: '1px solid rgb(var(--c-panel-border))'
 		},
-		// Use <br> as a flex line break for two-row layout
-		'.cm-panel.cm-search br': {
-			display: 'block',
-			width: '100%',
-			height: '0',
-			margin: '2px 0'
+		'.cm-panel.cm-search input, .cm-panel.cm-search button, .cm-panel.cm-search label': {
+			color: 'rgb(var(--c-editor-fg))'
 		},
-		'.cm-panel.cm-search label': {
-			display: 'inline-flex',
-			alignItems: 'center',
-			gap: '4px',
-			color: 'rgba(var(--c-editor-fg), 0.7)',
-			fontSize: '11px',
-			cursor: 'pointer',
-			userSelect: 'none',
-			padding: '4px 6px',
-			borderRadius: '4px',
-			transition: 'background-color 150ms'
-		},
-		'.cm-panel.cm-search label:hover': {
-			backgroundColor: 'rgba(255, 255, 255, 0.05)'
-		},
-		'.cm-panel.cm-search input[type="checkbox"]': {
-			accentColor: 'rgb(var(--c-accent))',
-			width: '13px',
-			height: '13px',
-			cursor: 'pointer'
-		},
-		'.cm-textfield': {
+		'.cm-panel.cm-search input[type="text"]': {
 			backgroundColor: 'rgb(var(--c-editor-bg))',
 			border: '1px solid rgb(var(--c-panel-border))',
 			borderRadius: '4px',
-			padding: '7px 12px',
-			color: 'rgb(var(--c-editor-fg))',
-			fontSize: '12px',
-			outline: 'none',
-			transition: 'border-color 150ms, box-shadow 150ms',
-			width: '200px',
-			flexShrink: '0'
+			padding: '4px 8px',
+			color: 'rgb(var(--c-editor-fg))'
 		},
-		'.cm-textfield:focus': {
+		'.cm-panel.cm-search input[type="text"]:focus': {
 			borderColor: 'rgb(var(--c-accent))',
-			boxShadow: '0 0 0 1px rgb(var(--c-accent))'
+			outline: 'none'
 		},
 		'.cm-textfield::placeholder': {
 			color: 'rgb(107 114 128)'
@@ -139,7 +95,7 @@
 			backgroundColor: 'rgb(var(--c-panel-active)) !important',
 			border: '1px solid rgb(var(--c-panel-border)) !important',
 			borderRadius: '4px',
-			padding: '6px 12px',
+			padding: '5px 10px',
 			color: 'rgb(var(--c-editor-fg)) !important',
 			fontSize: '11px',
 			fontWeight: '500',
@@ -155,26 +111,26 @@
 			backgroundColor: 'rgb(var(--c-accent-hover)) !important'
 		},
 		'.cm-panel.cm-search button[name="close"]': {
-			position: 'absolute',
-			top: '10px',
-			right: '8px',
 			backgroundColor: 'transparent !important',
 			border: 'none !important',
 			borderRadius: '4px',
 			padding: '4px 8px',
 			color: 'rgb(var(--c-editor-fg)) !important',
-			fontSize: '18px',
+			fontSize: '16px',
 			lineHeight: '1',
 			cursor: 'pointer',
-			opacity: '0.5'
+			opacity: '0.7',
+			marginLeft: 'auto'
 		},
 		'.cm-panel.cm-search button[name="close"]:hover': {
 			backgroundColor: 'rgba(255, 255, 255, 0.1) !important',
 			opacity: '1'
 		},
+		'.cm-panel.cm-search input[type="checkbox"]': {
+			accentColor: 'rgb(var(--c-accent))'
+		},
 		'.cm-searchMatch': {
-			backgroundColor: 'rgba(var(--c-warning), 0.3)',
-			borderRadius: '2px'
+			backgroundColor: 'rgba(var(--c-warning), 0.3)'
 		},
 		'.cm-searchMatch-selected': {
 			backgroundColor: 'rgba(var(--c-warning), 0.6)'
@@ -253,69 +209,6 @@
 
 		currentLanguage = null;
 		applyLanguage(language);
-
-		// Restore saved scroll position after editor is ready
-		queueMicrotask(() => {
-			if (editorView) {
-				const savedScroll = fileStore.getScrollPosition(filePath);
-				if (savedScroll > 0) {
-					editorView.scrollDOM.scrollTop = savedScroll;
-				}
-			}
-		});
-
-		// Log focus events on the editor
-		editorView.contentDOM.addEventListener('focus', () => {
-			debugLog(`[FOCUS] scroll: ${editorView!.scrollDOM.scrollTop}`);
-		});
-
-		// Save scroll position on scroll (debounced)
-		let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
-		let lastScrollTop = editorView.scrollDOM.scrollTop;
-		
-		const onScroll = () => {
-			if (!editorView) return;
-			const newScrollTop = editorView.scrollDOM.scrollTop;
-			const delta = newScrollTop - lastScrollTop;
-			// Only log significant jumps that aren't obviously user scrolling
-			if (Math.abs(delta) > 100) {
-				// We don't log here anymore to reduce noise, the ResizeObserver handles the fix
-			}
-			lastScrollTop = newScrollTop;
-
-			if (scrollTimeout) clearTimeout(scrollTimeout);
-			scrollTimeout = setTimeout(() => {
-				if (editorView) {
-					fileStore.setScrollPosition(filePath, editorView.scrollDOM.scrollTop);
-				}
-			}, 150);
-		};
-
-		editorView.scrollDOM.addEventListener('scroll', onScroll);
-
-		// Watch for resizing (Android soft keyboard) and restore scroll if it jumps
-		const resizeObserver = new ResizeObserver(() => {
-			if (!editorView) return;
-			const currentScroll = editorView.scrollDOM.scrollTop;
-			// If scroll jumped to ~0 (or significantly changed) during a resize, restore it
-			if (Math.abs(currentScroll - lastScrollTop) > 50 && lastScrollTop > 0) {
-				debugLog(`[RESIZE-FIX] Restoring ${currentScroll} -> ${lastScrollTop}`);
-				editorView.scrollDOM.scrollTop = lastScrollTop;
-			}
-		});
-		resizeObserver.observe(editorContainer!);
-
-		// Cleanup function attached to the view's destruction is hard to hook directly here
-		// without extra state, so we register a destroy handler on the view itself or return cleanup.
-		// Since createEditor doesn't return cleanup, we'll patch the destroy method.
-		const originalDestroy = editorView.destroy.bind(editorView);
-		editorView.destroy = () => {
-			resizeObserver.disconnect();
-			if (editorView) {
-				editorView.scrollDOM.removeEventListener('scroll', onScroll);
-			}
-			originalDestroy();
-		};
 	}
 
 	async function handleSave() {
@@ -377,8 +270,6 @@
 
 	onDestroy(() => {
 		if (editorView) {
-			// Save scroll position before destroying
-			fileStore.setScrollPosition(filePath, editorView.scrollDOM.scrollTop);
 			editorView.destroy();
 		}
 	});
@@ -386,7 +277,6 @@
 	function setEditorContent(content: string) {
 		if (!editorView) return;
 		const scrollTop = editorView.scrollDOM.scrollTop;
-		debugLog(`[SYNC] preserving scroll: ${scrollTop}`);
 		const selection = editorView.state.selection;
 		suppressStoreUpdate = true;
 		editorView.dispatch({
@@ -394,16 +284,10 @@
 			selection: {
 				anchor: Math.min(selection.main.anchor, content.length),
 				head: Math.min(selection.main.head, content.length)
-			},
-			scrollIntoView: false
-		});
-		suppressStoreUpdate = false;
-		requestAnimationFrame(() => {
-			if (editorView) {
-				debugLog(`[SYNC] restoring: ${scrollTop}, was: ${editorView.scrollDOM.scrollTop}`);
-				editorView.scrollDOM.scrollTop = scrollTop;
 			}
 		});
+		suppressStoreUpdate = false;
+		editorView.scrollDOM.scrollTop = scrollTop;
 	}
 
 	// Keep editor instance stable across reactivity changes
@@ -434,7 +318,6 @@
 		// Sync document content if it diverges from store state
 		const currentContent = editorView.state.doc.toString();
 		if (currentContent !== file.content) {
-			debugLog('[EFFECT] content diverged');
 			setEditorContent(file.content);
 		}
 	});
@@ -470,30 +353,12 @@
 			</div>
 		</div>
 	{/if}
-	<div bind:this={editorContainer} class="flex-1 h-full w-full min-h-0"></div>
-
-	<!-- Debug overlay -->
-	{#if debugLogs.length > 0}
-		<div class="absolute top-0 right-0 bg-black/80 text-green-400 text-[10px] font-mono p-2 max-w-[50%] max-h-[40%] overflow-auto z-50 pointer-events-none">
-			{#each debugLogs as log}
-				<div>{log}</div>
-			{/each}
-		</div>
-	{/if}
-
+	<div bind:this={editorContainer} class="flex-1 h-full w-full"></div>
 	{#if !file}
 		<div class="absolute inset-0 flex items-center justify-center text-gray-500">
 			<p>Loading file...</p>
 		</div>
 	{/if}
-
-	<!-- Editor actions bar -->
-	<EditorHotkeysBar
-		disabled={!file}
-		dirty={file?.dirty ?? false}
-		{editorView}
-		onSave={handleSave}
-	/>
 </div>
 
 <style>
