@@ -208,18 +208,22 @@ function createWorkspaceStore() {
 			const connectionId = session.connectionId;
 
 			// Close all terminals belonging to this session (single owner: terminalStore)
-			try {
-				const { terminalStore } = await import('./terminal');
-				await terminalStore.closeSessionTerminals(sessionId);
-			} catch (error) {
-				console.error('Failed to close session terminals:', error);
-				notificationsStore.notify({
-					severity: 'warning',
-					title: 'Terminal Cleanup Failed',
-					message: 'Some terminals may not have closed cleanly.',
-					detail: error instanceof Error ? error.message : String(error)
+			// We do this in the background (fire-and-forget) to prevent UI blocking/freezing
+			// if the backend or SSH connection is slow/unresponsive.
+			import('./terminal').then(({ terminalStore }) => {
+				terminalStore.closeSessionTerminals(sessionId).catch((error) => {
+					console.error('Failed to close session terminals:', error);
+					// Only notify if it's a real error, not just a disconnect race
+					if (get(connectionStore).activeConnections.get(connectionId)?.status === 'connected') {
+						notificationsStore.notify({
+							severity: 'warning',
+							title: 'Terminal Cleanup Warning',
+							message: 'Some terminals may not have closed cleanly on the server.',
+							detail: error instanceof Error ? error.message : String(error)
+						});
+					}
 				});
-			}
+			});
 
 			// Remove session from state
 			update((s) => {

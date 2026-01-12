@@ -264,15 +264,6 @@
 			}
 		});
 
-		// Log pointer/mouse events to catch scroll resets
-		editorView.contentDOM.addEventListener('pointerdown', () => {
-			debugLog(`[PTRDOWN] scroll: ${editorView!.scrollDOM.scrollTop}`);
-		}, { capture: true });
-
-		editorView.contentDOM.addEventListener('mousedown', () => {
-			debugLog(`[MOUSEDOWN] scroll: ${editorView!.scrollDOM.scrollTop}`);
-		}, { capture: true });
-
 		// Log focus events on the editor
 		editorView.contentDOM.addEventListener('focus', () => {
 			debugLog(`[FOCUS] scroll: ${editorView!.scrollDOM.scrollTop}`);
@@ -281,11 +272,13 @@
 		// Save scroll position on scroll (debounced)
 		let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
 		let lastScrollTop = editorView.scrollDOM.scrollTop;
-		editorView.scrollDOM.addEventListener('scroll', () => {
+		
+		const onScroll = () => {
 			const newScrollTop = editorView!.scrollDOM.scrollTop;
 			const delta = newScrollTop - lastScrollTop;
+			// Only log significant jumps that aren't obviously user scrolling
 			if (Math.abs(delta) > 100) {
-				debugLog(`[JUMP] ${lastScrollTop}→${newScrollTop} (Δ${delta})`);
+				// We don't log here anymore to reduce noise, the ResizeObserver handles the fix
 			}
 			lastScrollTop = newScrollTop;
 
@@ -295,7 +288,31 @@
 					fileStore.setScrollPosition(filePath, editorView.scrollDOM.scrollTop);
 				}
 			}, 150);
+		};
+
+		editorView.scrollDOM.addEventListener('scroll', onScroll);
+
+		// Watch for resizing (Android soft keyboard) and restore scroll if it jumps
+		const resizeObserver = new ResizeObserver(() => {
+			if (!editorView) return;
+			const currentScroll = editorView.scrollDOM.scrollTop;
+			// If scroll jumped to ~0 (or significantly changed) during a resize, restore it
+			if (Math.abs(currentScroll - lastScrollTop) > 50 && lastScrollTop > 0) {
+				debugLog(`[RESIZE-FIX] Restoring ${currentScroll} -> ${lastScrollTop}`);
+				editorView.scrollDOM.scrollTop = lastScrollTop;
+			}
 		});
+		resizeObserver.observe(editorContainer!);
+
+		// Cleanup function attached to the view's destruction is hard to hook directly here
+		// without extra state, so we register a destroy handler on the view itself or return cleanup.
+		// Since createEditor doesn't return cleanup, we'll patch the destroy method.
+		const originalDestroy = editorView.destroy.bind(editorView);
+		editorView.destroy = () => {
+			resizeObserver.disconnect();
+			editorView!.scrollDOM.removeEventListener('scroll', onScroll);
+			originalDestroy();
+		};
 	}
 
 	async function handleSave() {
