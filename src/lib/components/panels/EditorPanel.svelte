@@ -117,30 +117,31 @@
 		'.cm-textfield::placeholder': {
 			color: 'rgb(107 114 128)'
 		},
-		'.cm-button': {
-			backgroundColor: 'rgb(var(--c-panel-active))',
-			border: '1px solid rgb(var(--c-panel-border))',
+		'.cm-button, .cm-panel.cm-search button': {
+			backgroundColor: 'rgb(var(--c-panel-active)) !important',
+			border: '1px solid rgb(var(--c-panel-border)) !important',
 			borderRadius: '4px',
 			padding: '5px 10px',
-			color: 'rgb(var(--c-editor-fg))',
+			color: 'rgb(var(--c-editor-fg)) !important',
 			fontSize: '11px',
 			fontWeight: '500',
 			cursor: 'pointer',
-			transition: 'background-color 150ms, border-color 150ms'
+			transition: 'background-color 150ms, border-color 150ms',
+			backgroundImage: 'none !important'
 		},
-		'.cm-button:hover': {
-			backgroundColor: 'rgb(var(--c-accent))',
-			borderColor: 'rgb(var(--c-accent))'
+		'.cm-button:hover, .cm-panel.cm-search button:hover': {
+			backgroundColor: 'rgb(var(--c-accent)) !important',
+			borderColor: 'rgb(var(--c-accent)) !important'
 		},
-		'.cm-button:active': {
-			backgroundColor: 'rgb(var(--c-accent-hover))'
+		'.cm-button:active, .cm-panel.cm-search button:active': {
+			backgroundColor: 'rgb(var(--c-accent-hover)) !important'
 		},
 		'.cm-panel.cm-search button[name="close"]': {
-			backgroundColor: 'transparent',
-			border: 'none',
+			backgroundColor: 'transparent !important',
+			border: 'none !important',
 			borderRadius: '4px',
 			padding: '4px 8px',
-			color: 'rgb(var(--c-editor-fg))',
+			color: 'rgb(var(--c-editor-fg)) !important',
 			fontSize: '16px',
 			lineHeight: '1',
 			cursor: 'pointer',
@@ -148,7 +149,7 @@
 			marginLeft: 'auto'
 		},
 		'.cm-panel.cm-search button[name="close"]:hover': {
-			backgroundColor: 'rgba(255, 255, 255, 0.1)',
+			backgroundColor: 'rgba(255, 255, 255, 0.1) !important',
 			opacity: '1'
 		},
 		'.cm-searchMatch': {
