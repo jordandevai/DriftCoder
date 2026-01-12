@@ -23,7 +23,7 @@
 	let { filePath }: Props = $props();
 
 	let editorContainer = $state<HTMLDivElement | null>(null);
-	let editorView: EditorView | null = null;
+	let editorView = $state<EditorView | null>(null);
 	let currentLanguage = $state<string | null>(null);
 	let suppressStoreUpdate = false;
 	let languageLoadVersion = 0;
@@ -274,7 +274,8 @@
 		let lastScrollTop = editorView.scrollDOM.scrollTop;
 		
 		const onScroll = () => {
-			const newScrollTop = editorView!.scrollDOM.scrollTop;
+			if (!editorView) return;
+			const newScrollTop = editorView.scrollDOM.scrollTop;
 			const delta = newScrollTop - lastScrollTop;
 			// Only log significant jumps that aren't obviously user scrolling
 			if (Math.abs(delta) > 100) {
@@ -310,7 +311,9 @@
 		const originalDestroy = editorView.destroy.bind(editorView);
 		editorView.destroy = () => {
 			resizeObserver.disconnect();
-			editorView!.scrollDOM.removeEventListener('scroll', onScroll);
+			if (editorView) {
+				editorView.scrollDOM.removeEventListener('scroll', onScroll);
+			}
 			originalDestroy();
 		};
 	}

@@ -114,18 +114,15 @@ export async function closeActivePanel(): Promise<void> {
 	}
 
 	if (panel.type === 'terminal' && panel.terminalId) {
-		try {
-			await terminalStore.closeTerminal(panel.terminalId);
-		} catch (error) {
+		terminalStore.closeTerminal(panel.terminalId).catch((error) => {
 			notificationsStore.notify({
 				severity: 'error',
 				title: 'Terminal Close Failed',
 				message: 'Could not close the active terminal.',
 				detail: error instanceof Error ? error.message : String(error)
 			});
-		} finally {
-			layoutStore.removePanelForSession(session.id, panel.id);
-		}
+		});
+		layoutStore.removePanelForSession(session.id, panel.id);
 	}
 }
 
@@ -134,18 +131,15 @@ export async function closeActiveTerminalPanel(): Promise<void> {
 	const panel = get(activePanel);
 	if (!session || !panel || panel.type !== 'terminal' || !panel.terminalId) return;
 
-	try {
-		await terminalStore.closeTerminal(panel.terminalId);
-	} catch (error) {
+	terminalStore.closeTerminal(panel.terminalId).catch((error) => {
 		notificationsStore.notify({
 			severity: 'error',
 			title: 'Terminal Close Failed',
 			message: 'Could not close the active terminal.',
 			detail: error instanceof Error ? error.message : String(error)
 		});
-	} finally {
-		layoutStore.removePanelForSession(session.id, panel.id);
-	}
+	});
+	layoutStore.removePanelForSession(session.id, panel.id);
 }
 
 export async function closeActiveProject(): Promise<void> {

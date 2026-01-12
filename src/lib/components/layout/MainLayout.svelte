@@ -323,7 +323,7 @@
 	<NotificationCenter />
 	<DiagnosticsModal />
 	<SettingsModal />
-	<ConfirmHost />
 	<PromptModal />
 	<ConflictResolutionModal />
+	<ConfirmHost />
 </div>

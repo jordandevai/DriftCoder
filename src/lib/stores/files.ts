@@ -127,8 +127,6 @@ function createFileStore() {
 			});
 			await refreshDirectoryForSession(session.id, session.connectionId, session.projectRoot, session.projectRoot);
 		} catch (error) {
-			// Best-effort: if the connection is still establishing or temporarily unavailable,
-			// leave the tree empty and allow manual refresh.
 			console.warn('Failed to auto-load project file tree:', error);
 		}
 	}
@@ -194,7 +192,6 @@ function createFileStore() {
 		try {
 			meta = await invoke<FileMeta>('sftp_stat', { connId, path });
 		} catch (error) {
-			// Best-effort: detect "file missing" so we can prevent ghost copies.
 			const msg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
 			const missing =
 				msg.includes('no such file') ||
@@ -214,18 +211,13 @@ function createFileStore() {
 					return { ...s, openFiles: newOpenFiles };
 				});
 			}
-			// If the connection is down or the stat fails transiently, avoid spamming UI.
 			return;
 		}
 
-		// Use latest state to avoid racing against user edits or session switches.
 		const latestSession = get(activeSession);
 		if (!latestSession || latestSession.id !== sessionId) return;
 		const latest = latestSession.fileState.openFiles.get(path);
 		if (!latest) return;
-
-		const isActive = latestSession.fileState.activeFilePath === path;
-		const trigger = opts?.trigger ?? 'manual';
 
 		updateFileState(sessionId, (s) => {
 			const file = s.openFiles.get(path);
@@ -241,12 +233,10 @@ function createFileStore() {
 				remoteMissing: false,
 				remoteMtimeOnServer: meta.mtime,
 				remoteSizeOnServer: meta.size,
-				// Only surface a "remote changed" indicator when the user has local edits.
 				remoteChanged: remoteNewer && file.dirty ? true : false,
 				remoteUpdateAvailable: remoteNewer && !file.dirty ? true : false
 			};
 
-			// If remote isn't newer, clear any prior indicator.
 			if (!remoteNewer) {
 				updated.remoteChanged = false;
 				updated.remoteMtimeOnServer = undefined;
@@ -259,7 +249,6 @@ function createFileStore() {
 			return { ...s, openFiles: newOpenFiles };
 		});
 
-		// If the file is clean and the remote changed, reload immediately (even if active).
 		const afterUpdateSession = get(activeSession);
 		if (!afterUpdateSession || afterUpdateSession.id !== sessionId) return;
 		const afterUpdateFile = afterUpdateSession.fileState.openFiles.get(path);
@@ -273,7 +262,6 @@ function createFileStore() {
 	}
 
 	return {
-		// Subscribe to the derived state
 		subscribe: fileStateStore.subscribe,
 
 		initRemoteSync(): void {
@@ -336,10 +324,6 @@ function createFileStore() {
 			await refreshDirectoryForSession(sessionId, connId, projectRoot, path);
 		},
 
-		/**
-		 * If the project tree is missing (e.g. restored session after app restart), load it.
-		 * Safe to call repeatedly; it throttles and is best-effort.
-		 */
 		async ensureProjectTreeLoaded(): Promise<void> {
 			await ensureProjectTreeLoadedForActiveSession();
 		},
@@ -349,7 +333,6 @@ function createFileStore() {
 			const sessionId = session.id;
 			const connId = session.connectionId;
 
-			// If we've already loaded children for this directory, expanding should not refetch.
 			const existing = findEntry(session.fileState.tree, path);
 			if (existing?.children) {
 				updateFileState(sessionId, (s) => {
@@ -419,18 +402,15 @@ function createFileStore() {
 			const sessionId = session.id;
 			const connId = session.connectionId;
 
-			// Recursively load and expand directories
 			const loadDir = async (path: string, depth: number): Promise<void> => {
 				if (depth > maxDepth) return;
 
-				// Check if already loaded
 				const currentSession = get(activeSession);
 				if (!currentSession || currentSession.id !== sessionId) return;
 
 				const existing = findEntry(currentSession.fileState.tree, path);
 				let children = existing?.children;
 
-				// Fetch if not loaded
 				if (!children) {
 					const entries = await invoke<FileEntry[]>('sftp_list_dir', { connId, path });
 					children = sortEntries(entries);
@@ -441,7 +421,6 @@ function createFileStore() {
 						return { ...s, expandedPaths: newExpanded, tree: newTree };
 					});
 				} else {
-					// Already loaded, just mark expanded
 					updateFileState(sessionId, (s) => {
 						const newExpanded = new Set(s.expandedPaths);
 						newExpanded.add(path);
@@ -449,7 +428,6 @@ function createFileStore() {
 					});
 				}
 
-				// Recurse into subdirectories
 				const subDirs = children.filter((e) => e.isDirectory);
 				await Promise.all(subDirs.map((d) => loadDir(d.path, depth + 1)));
 			};
@@ -462,9 +440,8 @@ function createFileStore() {
 			const sessionId = session.id;
 			const connId = session.connectionId;
 
-			// Already open, just activate
 			if (session.fileState.openFiles.has(path)) {
-				updateFileState(sessionId, (s) => ({ ...s, activeFilePath: path }));
+				this.setActiveFile(path);
 				return;
 			}
 
@@ -535,7 +512,6 @@ function createFileStore() {
 			const file = session.fileState.openFiles.get(path);
 			if (!file) return;
 
-			// Check for conflicts
 			let remoteStat: FileMeta;
 			try {
 				remoteStat = await invoke<FileMeta>('sftp_stat', { connId, path });
@@ -672,7 +648,6 @@ function createFileStore() {
 				return { ...layout, groups: newGroups };
 			});
 
-			// Refresh directory listing so the new file appears in the tree.
 			const parent = newPath.substring(0, newPath.lastIndexOf('/'));
 			if (parent) {
 				await this.refreshDirectory(parent);
@@ -700,6 +675,9 @@ function createFileStore() {
 		setActiveFile(path: string | null): void {
 			const session = get(activeSession);
 			if (!session) return;
+
+			// Check if already set to avoid infinite reactivity loops in effects
+			if (session.fileState.activeFilePath === path) return;
 
 			updateFileState(session.id, (s) => ({ ...s, activeFilePath: path }));
 			if (path) {
@@ -748,7 +726,6 @@ function createFileStore() {
 			await invoke('sftp_delete', { connId, path });
 			await this.refreshDirectory(path.substring(0, path.lastIndexOf('/')));
 
-			// Close file if open
 			updateFileState(sessionId, (s) => {
 				if (s.openFiles.has(path)) {
 					const newOpenFiles = new Map(s.openFiles);
@@ -766,7 +743,6 @@ function createFileStore() {
 
 			await invoke('sftp_rename', { connId, oldPath, newPath });
 
-			// Update any open editors + expanded paths so we don't keep "ghost" tabs pointing at the old path.
 			updateFileState(sessionId, (s) => {
 				const newOpenFiles = new Map<string, OpenFile>();
 				for (const [path, file] of s.openFiles) {
