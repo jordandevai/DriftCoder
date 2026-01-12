@@ -11,25 +11,25 @@
 		| { kind: 'format'; label: string; description?: string };
 
 	interface Props {
-		expanded: boolean;
+		expanded?: boolean;
 		disabled?: boolean;
 		dirty?: boolean;
 		canUndo?: boolean;
 		canRedo?: boolean;
 		editorView: EditorView | null;
-		onToggle: () => void;
+		onToggle?: () => void;
 		onSave: () => void;
 		onFormat?: () => void;
 	}
 
 	let {
-		expanded,
+		expanded = false,
 		disabled = false,
 		dirty = false,
 		canUndo = true,
 		canRedo = true,
 		editorView,
-		onToggle,
+		onToggle = () => {},
 		onSave,
 		onFormat
 	}: Props = $props();
