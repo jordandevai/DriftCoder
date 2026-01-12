@@ -27,6 +27,12 @@
 	let currentLanguage = $state<string | null>(null);
 	let suppressStoreUpdate = false;
 	let languageLoadVersion = 0;
+	let debugLogs = $state<string[]>([]);
+
+	function debugLog(msg: string) {
+		debugLogs = [...debugLogs.slice(-19), msg];
+		console.log(msg);
+	}
 
 	const file = $derived($fileStore.openFiles.get(filePath));
 	const wordWrap = $derived($settingsStore.wordWrap);
@@ -258,9 +264,22 @@
 			}
 		});
 
+		// Log focus events on the editor
+		editorView.contentDOM.addEventListener('focus', () => {
+			debugLog(`[FOCUS] editor focused, scroll: ${editorView!.scrollDOM.scrollTop}`);
+		});
+
 		// Save scroll position on scroll (debounced)
 		let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
+		let lastScrollTop = editorView.scrollDOM.scrollTop;
 		editorView.scrollDOM.addEventListener('scroll', () => {
+			const newScrollTop = editorView!.scrollDOM.scrollTop;
+			const delta = newScrollTop - lastScrollTop;
+			if (Math.abs(delta) > 100) {
+				debugLog(`[JUMP] ${lastScrollTop}→${newScrollTop} (Δ${delta})`);
+			}
+			lastScrollTop = newScrollTop;
+
 			if (scrollTimeout) clearTimeout(scrollTimeout);
 			scrollTimeout = setTimeout(() => {
 				if (editorView) {
@@ -338,6 +357,7 @@
 	function setEditorContent(content: string) {
 		if (!editorView) return;
 		const scrollTop = editorView.scrollDOM.scrollTop;
+		debugLog(`[SYNC] preserving scroll: ${scrollTop}`);
 		const selection = editorView.state.selection;
 		suppressStoreUpdate = true;
 		editorView.dispatch({
@@ -351,6 +371,7 @@
 		suppressStoreUpdate = false;
 		requestAnimationFrame(() => {
 			if (editorView) {
+				debugLog(`[SYNC] restoring: ${scrollTop}, was: ${editorView.scrollDOM.scrollTop}`);
 				editorView.scrollDOM.scrollTop = scrollTop;
 			}
 		});
@@ -384,6 +405,7 @@
 		// Sync document content if it diverges from store state
 		const currentContent = editorView.state.doc.toString();
 		if (currentContent !== file.content) {
+			debugLog('[EFFECT] content diverged');
 			setEditorContent(file.content);
 		}
 	});
@@ -420,6 +442,16 @@
 		</div>
 	{/if}
 	<div bind:this={editorContainer} class="flex-1 h-full w-full min-h-0"></div>
+
+	<!-- Debug overlay -->
+	{#if debugLogs.length > 0}
+		<div class="absolute top-0 right-0 bg-black/80 text-green-400 text-[10px] font-mono p-2 max-w-[50%] max-h-[40%] overflow-auto z-50 pointer-events-none">
+			{#each debugLogs as log}
+				<div>{log}</div>
+			{/each}
+		</div>
+	{/if}
+
 	{#if !file}
 		<div class="absolute inset-0 flex items-center justify-center text-gray-500">
 			<p>Loading file...</p>

@@ -17,7 +17,7 @@
 			if (typeof document === 'undefined') return;
 			const activeElement = document.activeElement as HTMLElement | null;
 			if (!activeElement) return;
-			
+
 			// Only scroll if it's an input-like element
 			const tagName = activeElement.tagName.toLowerCase();
 			if (tagName !== 'input' && tagName !== 'textarea' && !activeElement.isContentEditable) return;
@@ -63,7 +63,7 @@
 		const onFocusChange = () => {
 			updateViewportVars();
 			window.setTimeout(updateViewportVars, 100);
-			
+
 			// On Android, scroll the focused element into view when keyboard appears
 			const isAndroid = /Android/i.test(navigator.userAgent);
 			if (isAndroid) {
