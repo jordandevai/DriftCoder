@@ -27,6 +27,8 @@
 	let currentLanguage = $state<string | null>(null);
 	let suppressStoreUpdate = false;
 	let languageLoadVersion = 0;
+	let lastScrollTop = 0;
+	let resizeObserver: ResizeObserver | null = null;
 
 	const file = $derived($fileStore.openFiles.get(filePath));
 	const wordWrap = $derived($settingsStore.wordWrap);
@@ -195,7 +197,15 @@
 					'&': { fontSize: `${fontSize}px` },
 					'.cm-content': { fontSize: `${fontSize}px` }
 				})
-			)
+			),
+			// Account for Android keyboard inset
+			EditorView.scrollMargins.of(() => {
+				const root = document.documentElement;
+				const keyboardInset = parseInt(
+					root.style.getPropertyValue('--native-keyboard-inset-bottom') || '0'
+				);
+				return { bottom: Math.max(50, keyboardInset) };
+			})
 		];
 
 		const state = EditorState.create({
@@ -207,6 +217,25 @@
 			state,
 			parent: editorContainer!
 		});
+
+		// Track scroll position continuously
+		const onScroll = () => {
+			if (editorView) {
+				lastScrollTop = editorView.scrollDOM.scrollTop;
+			}
+		};
+		editorView.scrollDOM.addEventListener('scroll', onScroll);
+
+		// Restore scroll position after keyboard-induced resize
+		resizeObserver?.disconnect();
+		resizeObserver = new ResizeObserver(() => {
+			if (!editorView) return;
+			const currentScroll = editorView.scrollDOM.scrollTop;
+			if (Math.abs(currentScroll - lastScrollTop) > 50 && lastScrollTop > 0) {
+				editorView.scrollDOM.scrollTop = lastScrollTop;
+			}
+		});
+		resizeObserver.observe(editorContainer!);
 
 		currentLanguage = null;
 		applyLanguage(language);
@@ -270,6 +299,7 @@
 	}
 
 	onDestroy(() => {
+		resizeObserver?.disconnect();
 		if (editorView) {
 			editorView.destroy();
 		}
@@ -277,7 +307,7 @@
 
 	function setEditorContent(content: string) {
 		if (!editorView) return;
-		const scrollTop = editorView.scrollDOM.scrollTop;
+		const scrollSnapshot = editorView.scrollSnapshot();
 		const selection = editorView.state.selection;
 		suppressStoreUpdate = true;
 		editorView.dispatch({
@@ -285,10 +315,10 @@
 			selection: {
 				anchor: Math.min(selection.main.anchor, content.length),
 				head: Math.min(selection.main.head, content.length)
-			}
+			},
+			effects: scrollSnapshot
 		});
 		suppressStoreUpdate = false;
-		editorView.scrollDOM.scrollTop = scrollTop;
 	}
 
 	// Keep editor instance stable across reactivity changes
