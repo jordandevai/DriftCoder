@@ -5,6 +5,7 @@
 		import { settingsStore } from '$stores/settings';
 		import { connectionStore } from '$stores/connection';
 		import { workspaceStore } from '$stores/workspace';
+		import { settingsUiStore } from '$stores/settings-ui';
 		import { TERMINAL_THEME_KEYS, toKebabCase } from '$utils/theme';
 		import TerminalHotkeysBar from '$components/terminal/TerminalHotkeysBar.svelte';
 		import FloatingScrollControls from '$components/terminal/FloatingScrollControls.svelte';
@@ -37,8 +38,13 @@
 	let writeErrorNotified = false;
 	let resizeErrorNotified = false;
 	let writeBuffer: number[] = [];
-	let writeTimer: ReturnType<typeof setTimeout> | null = null;
+	let writeScheduleTimer: ReturnType<typeof setTimeout> | null = null;
+	let writeInFlight = false;
+	let writeNeedsFlushAfterFlight = false;
+	let writeFirstQueuedAt = 0;
+	let writeScheduledAt = 0;
 	let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+	let manualScrollHoldUntil = 0;
 
 	// Control keys that should flush immediately for responsive feel
 	const IMMEDIATE_KEYS = [
@@ -48,6 +54,11 @@
 		0x1b, // Escape
 		0x7f // Backspace
 	];
+	const TARGET_BATCH_MS = 8;
+	const MAX_LATENCY_MS = 12;
+	const MAX_BATCH_BYTES = 128;
+	const MANUAL_SCROLL_HOLD_MS = 500;
+	const DEBUG_TERMINAL_INPUT = false;
 	let ptyDisconnected = $state(false);
 	let scrolledBack = $state(false);
 	let outputTail = $state<number[]>([]);
@@ -58,9 +69,22 @@
 	const themeOverrides = $derived($settingsStore.themeOverrides);
 	const connectionDown = $derived(connectionStatus !== 'connected');
 	const isReconnecting = $derived(connectionStatus === 'reconnecting');
+	const terminalFullscreen = $derived($settingsUiStore.terminalFullscreen);
 	const arrowMode = $derived.by(() => (applicationCursorKeys ? 'ss3' : 'csi') as 'ss3' | 'csi');
 
 	type HotkeyAction = { kind: 'bytes'; bytes: number[] } | { kind: 'text'; text: string };
+
+	function nowMs(): number {
+		if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+			return performance.now();
+		}
+		return Date.now();
+	}
+
+	function debugTerminalInput(...args: unknown[]): void {
+		if (!DEBUG_TERMINAL_INPUT) return;
+		console.debug('[terminal-input]', ...args);
+	}
 
 	function isCoarsePointer(): boolean {
 		if (typeof window === 'undefined') return false;
@@ -102,39 +126,103 @@
 
 	async function flushWriteBuffer(): Promise<void> {
 		if (writeBuffer.length === 0) return;
-		const data = writeBuffer;
-		writeBuffer = [];
-		if (writeTimer) {
-			clearTimeout(writeTimer);
-			writeTimer = null;
+		if (writeInFlight) {
+			writeNeedsFlushAfterFlight = true;
+			return;
 		}
 
-		if (connectionDown || ptyDisconnected) return;
+		writeInFlight = true;
+		const data = writeBuffer;
+		writeBuffer = [];
+		writeFirstQueuedAt = 0;
+		if (writeScheduleTimer) {
+			clearTimeout(writeScheduleTimer);
+			writeScheduleTimer = null;
+		}
+		writeScheduledAt = 0;
+		debugTerminalInput('flush', { bytes: data.length });
+
 		try {
-			await invoke('terminal_write', { termId: terminalId, data });
-		} catch (error) {
-			console.error('Failed to write to terminal:', error);
-			ptyDisconnected = true;
-			if (!connectionDown && !writeErrorNotified) {
-				writeErrorNotified = true;
-				notificationsStore.notify({
-					severity: 'error',
-					title: 'Terminal Disconnected',
-					message: 'Terminal input failed. The remote terminal may have closed or disconnected.',
-					detail: error instanceof Error ? error.message : String(error)
-				});
+			if (connectionDown || ptyDisconnected) return;
+			try {
+				await invoke('terminal_write', { termId: terminalId, data });
+			} catch (error) {
+				console.error('Failed to write to terminal:', error);
+				ptyDisconnected = true;
+				if (!connectionDown && !writeErrorNotified) {
+					writeErrorNotified = true;
+					notificationsStore.notify({
+						severity: 'error',
+						title: 'Terminal Disconnected',
+						message: 'Terminal input failed. The remote terminal may have closed or disconnected.',
+						detail: error instanceof Error ? error.message : String(error)
+					});
+				}
+			}
+		} finally {
+			writeInFlight = false;
+			if (writeNeedsFlushAfterFlight) {
+				writeNeedsFlushAfterFlight = false;
+			}
+			if (writeBuffer.length > 0) {
+				scheduleWriteFlush(0);
 			}
 		}
+	}
+
+	function triggerWriteFlushNow(): void {
+		if (writeBuffer.length === 0) return;
+		if (writeScheduleTimer) {
+			clearTimeout(writeScheduleTimer);
+			writeScheduleTimer = null;
+		}
+		writeScheduledAt = 0;
+		if (writeInFlight) {
+			writeNeedsFlushAfterFlight = true;
+			return;
+		}
+		void flushWriteBuffer();
+	}
+
+	function scheduleWriteFlush(preferredDelayMs = TARGET_BATCH_MS): void {
+		if (writeBuffer.length === 0) return;
+		const now = nowMs();
+		if (writeFirstQueuedAt === 0) {
+			writeFirstQueuedAt = now;
+		}
+
+		const ageMs = now - writeFirstQueuedAt;
+		const maxAllowedDelay = MAX_LATENCY_MS - ageMs;
+		const delayMs = Math.max(0, Math.min(preferredDelayMs, maxAllowedDelay));
+
+		if (delayMs <= 0) {
+			triggerWriteFlushNow();
+			return;
+		}
+
+		const nextDueAt = now + delayMs;
+		if (writeScheduleTimer && writeScheduledAt <= nextDueAt) return;
+		if (writeScheduleTimer) {
+			clearTimeout(writeScheduleTimer);
+		}
+
+		writeScheduledAt = nextDueAt;
+		writeScheduleTimer = setTimeout(() => {
+			writeScheduleTimer = null;
+			writeScheduledAt = 0;
+			void flushWriteBuffer();
+		}, delayMs);
 	}
 
 	function queueWrite(bytes: Uint8Array): void {
 		const hasImmediate = bytes.some((b) => IMMEDIATE_KEYS.includes(b));
 		writeBuffer.push(...bytes);
+		debugTerminalInput('queue', { bytes: bytes.length, total: writeBuffer.length, hasImmediate });
 
-		if (hasImmediate) {
-			void flushWriteBuffer(); // Immediate for control keys
-		} else if (!writeTimer) {
-			writeTimer = setTimeout(() => void flushWriteBuffer(), 32); // ~2 frames, optimal balance
+		if (hasImmediate || writeBuffer.length >= MAX_BATCH_BYTES) {
+			triggerWriteFlushNow(); // Immediate for control keys / large queued payloads
+		} else {
+			scheduleWriteFlush(TARGET_BATCH_MS);
 		}
 	}
 
@@ -152,18 +240,30 @@
 	}
 
 	function handleScrollPageUp(): void {
+		if (!terminal) return;
+		manualScrollHoldUntil = nowMs() + MANUAL_SCROLL_HOLD_MS;
 		// Scroll local xterm buffer
-		terminal?.scrollPages(-1);
-		// Send PgUp key sequence for tmux/vim/less (ESC [ 5 ~)
-		queueWrite(new Uint8Array([0x1b, 0x5b, 0x35, 0x7e]));
+		const before = terminal.buffer.active.viewportY;
+		terminal.scrollLines(-(terminal.rows || 24));
+		const after = terminal.buffer.active.viewportY;
+		if (after === before) {
+			// If local viewport cannot move, forward PgUp to remote app (ESC [ 5 ~)
+			queueWrite(new Uint8Array([0x1b, 0x5b, 0x35, 0x7e]));
+		}
 		updateScrolledBack();
 	}
 
 	function handleScrollPageDown(): void {
+		if (!terminal) return;
+		manualScrollHoldUntil = nowMs() + MANUAL_SCROLL_HOLD_MS;
 		// Scroll local xterm buffer
-		terminal?.scrollPages(1);
-		// Send PgDn key sequence for tmux/vim/less (ESC [ 6 ~)
-		queueWrite(new Uint8Array([0x1b, 0x5b, 0x36, 0x7e]));
+		const before = terminal.buffer.active.viewportY;
+		terminal.scrollLines(terminal.rows || 24);
+		const after = terminal.buffer.active.viewportY;
+		if (after === before) {
+			// If local viewport cannot move, forward PgDn to remote app (ESC [ 6 ~)
+			queueWrite(new Uint8Array([0x1b, 0x5b, 0x36, 0x7e]));
+		}
 		updateScrolledBack();
 	}
 
@@ -252,6 +352,11 @@
 		queueMicrotask(() => terminal?.focus());
 	}
 
+	function toggleTerminalFullscreen(): void {
+		settingsUiStore.toggleTerminalFullscreen();
+		queueMicrotask(() => terminal?.focus());
+	}
+
 	function startThemeObserver(): void {
 		if (typeof window === 'undefined') return;
 		if (typeof MutationObserver === 'undefined') return;
@@ -328,6 +433,11 @@
 		});
 
 		terminal.onScroll(() => {
+			if (!terminal) return;
+			const buf = terminal.buffer.active;
+			if (buf.viewportY < buf.baseY) {
+				manualScrollHoldUntil = nowMs() + MANUAL_SCROLL_HOLD_MS;
+			}
 			updateScrolledBack();
 		});
 
@@ -338,7 +448,7 @@
 				const bytes = new Uint8Array(event.data);
 				terminal.write(bytes);
 				// If the user isn't reviewing history, keep the view pinned to the live bottom output.
-				if (!scrolledBack) {
+				if (!scrolledBack && nowMs() >= manualScrollHoldUntil) {
 					terminal.scrollToBottom();
 				}
 			}
@@ -381,8 +491,8 @@
 	});
 
 	onDestroy(() => {
-		if (writeTimer) {
-			clearTimeout(writeTimer);
+		if (writeScheduleTimer) {
+			clearTimeout(writeScheduleTimer);
 		}
 		if (resizeTimer) {
 			clearTimeout(resizeTimer);
@@ -411,6 +521,14 @@
 				onPageUp={handleScrollPageUp}
 				onPageDown={handleScrollPageDown}
 			/>
+			<button
+				class="absolute top-2 right-2 z-10 rounded bg-white/10 px-2 py-1 text-[11px] text-gray-100 hover:bg-white/20 transition-colors"
+				onclick={toggleTerminalFullscreen}
+				title={terminalFullscreen ? 'Exit terminal fullscreen' : 'Expand terminal to fullscreen'}
+				aria-label={terminalFullscreen ? 'Exit terminal fullscreen' : 'Expand terminal to fullscreen'}
+			>
+				{terminalFullscreen ? 'Collapse' : 'Expand'}
+			</button>
 			{#if scrolledBack && !connectionDown && !ptyDisconnected}
 				<button
 					class="absolute bottom-2 right-2 z-10 rounded bg-white/10 px-2 py-1 text-[11px] text-gray-100 hover:bg-white/20 transition-colors"

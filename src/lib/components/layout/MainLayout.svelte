@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { get } from 'svelte/store';
-	import { layoutStore } from '$stores/layout';
+	import { layoutStore, activePanel } from '$stores/layout';
 	import { hasSessions, activeSession, orderedSessions } from '$stores/workspace';
 	import MenuToolbar from './MenuToolbar.svelte';
 	import ProjectTabs from './ProjectTabs.svelte';
@@ -21,6 +21,7 @@
 	import { connectionStore } from '$stores/connection';
 	import { notificationsStore } from '$stores/notifications';
 	import { fileStore } from '$stores/files';
+	import { settingsUiStore } from '$stores/settings-ui';
 	import type { ConnectionProfile } from '$types';
 	import {
 		closeActivePanel,
@@ -33,6 +34,9 @@
 	let resizing = $state(false);
 	let menuCollapsed = $state(false);
 	let addProjectOpen = $state(false);
+	const terminalFullscreenActive = $derived(
+		$settingsUiStore.terminalFullscreen && $activePanel?.type === 'terminal'
+	);
 
 	// Initial connection flow state
 	let pendingConnectionId = $state<string | null>(null);
@@ -232,6 +236,13 @@
 			return;
 		}
 	}
+
+	$effect(() => {
+		// If the active panel is no longer a terminal, automatically leave terminal fullscreen mode.
+		if ($settingsUiStore.terminalFullscreen && $activePanel?.type !== 'terminal') {
+			settingsUiStore.setTerminalFullscreen(false);
+		}
+	});
 </script>
 
 <svelte:window onkeydown={handleGlobalKeydown} />
@@ -239,49 +250,53 @@
 <div class="h-full flex flex-col bg-editor-bg {resizing ? 'select-none' : ''}">
 	{#if $hasSessions}
 		<!-- Full IDE Layout with MenuToolbar + ProjectTabs -->
-		<MenuToolbar collapsed={menuCollapsed} ontogglecollapse={() => menuCollapsed = !menuCollapsed} onaddproject={handleAddProject} />
-		<ProjectTabs onaddproject={handleAddProject} />
+		{#if !terminalFullscreenActive}
+			<MenuToolbar collapsed={menuCollapsed} ontogglecollapse={() => menuCollapsed = !menuCollapsed} onaddproject={handleAddProject} />
+			<ProjectTabs onaddproject={handleAddProject} />
+		{/if}
 
 		<!-- Main IDE Content -->
 		<div class="flex-1 flex overflow-hidden">
-			<!-- File Tree Sidebar -->
-			{#if !$layoutStore.fileTreeCollapsed}
-				<div
-					class="flex-shrink-0 bg-sidebar-bg border-r border-panel-border overflow-hidden"
-					style="width: {$layoutStore.fileTreeWidth}px"
-				>
-					<FileTreePanel />
-				</div>
-
-				<!-- Resizer -->
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div
-					class="cursor-col-resize bg-transparent transition-colors flex-shrink-0 flex items-center justify-center
-					       w-1 hover:bg-accent/50
-					       touch-device:w-5 touch-device:bg-panel-border/30 touch-device:hover:bg-accent/30"
-					onmousedown={startResize}
-					ontouchstart={startTouchResize}
-				>
-					<!-- Grip indicator (3 horizontal lines) - visible on touch devices -->
-					<div class="hidden touch-device:flex flex-col gap-1 opacity-40">
-						<div class="w-3 h-0.5 rounded-full bg-gray-400"></div>
-						<div class="w-3 h-0.5 rounded-full bg-gray-400"></div>
-						<div class="w-3 h-0.5 rounded-full bg-gray-400"></div>
+			{#if !terminalFullscreenActive}
+				<!-- File Tree Sidebar -->
+				{#if !$layoutStore.fileTreeCollapsed}
+					<div
+						class="flex-shrink-0 bg-sidebar-bg border-r border-panel-border overflow-hidden"
+						style="width: {$layoutStore.fileTreeWidth}px"
+					>
+						<FileTreePanel />
 					</div>
-				</div>
-			{:else}
-				<!-- Expand button when file tree is collapsed -->
-				<button
-					class="flex-shrink-0 flex items-center justify-center bg-sidebar-bg border-r border-panel-border transition-colors hover:bg-sidebar-hover
-					       w-8 touch-device:w-12"
-					onclick={toggleFileTree}
-					title="Expand file tree (Ctrl+B)"
-					aria-label="Expand file tree"
-				>
-					<svg class="w-4 h-4 touch-device:w-5 touch-device:h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-					</svg>
-				</button>
+
+					<!-- Resizer -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="cursor-col-resize bg-transparent transition-colors flex-shrink-0 flex items-center justify-center
+						       w-1 hover:bg-accent/50
+						       touch-device:w-5 touch-device:bg-panel-border/30 touch-device:hover:bg-accent/30"
+						onmousedown={startResize}
+						ontouchstart={startTouchResize}
+					>
+						<!-- Grip indicator (3 horizontal lines) - visible on touch devices -->
+						<div class="hidden touch-device:flex flex-col gap-1 opacity-40">
+							<div class="w-3 h-0.5 rounded-full bg-gray-400"></div>
+							<div class="w-3 h-0.5 rounded-full bg-gray-400"></div>
+							<div class="w-3 h-0.5 rounded-full bg-gray-400"></div>
+						</div>
+					</div>
+				{:else}
+					<!-- Expand button when file tree is collapsed -->
+					<button
+						class="flex-shrink-0 flex items-center justify-center bg-sidebar-bg border-r border-panel-border transition-colors hover:bg-sidebar-hover
+						       w-8 touch-device:w-12"
+						onclick={toggleFileTree}
+						title="Expand file tree (Ctrl+B)"
+						aria-label="Expand file tree"
+					>
+						<svg class="w-4 h-4 touch-device:w-5 touch-device:h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+						</svg>
+					</button>
+				{/if}
 			{/if}
 
 			<!-- Panel Area -->
@@ -291,7 +306,9 @@
 		</div>
 
 		<!-- Status Bar -->
-		<StatusBar onaddproject={handleAddProject} />
+		{#if !terminalFullscreenActive}
+			<StatusBar onaddproject={handleAddProject} />
+		{/if}
 
 	{:else if pendingConnectionId && pendingProfile}
 		<!-- Connected but need to select folder -->
