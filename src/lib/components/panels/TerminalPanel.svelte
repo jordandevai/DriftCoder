@@ -7,6 +7,7 @@
 		import { workspaceStore } from '$stores/workspace';
 		import { TERMINAL_THEME_KEYS, toKebabCase } from '$utils/theme';
 		import TerminalHotkeysBar from '$components/terminal/TerminalHotkeysBar.svelte';
+		import FloatingScrollControls from '$components/terminal/FloatingScrollControls.svelte';
 
 		import type { Terminal as TerminalType } from 'xterm';
 		import type { FitAddon as FitAddonType } from '@xterm/addon-fit';
@@ -35,6 +36,18 @@
 	let themeObserver: MutationObserver | null = null;
 	let writeErrorNotified = false;
 	let resizeErrorNotified = false;
+	let writeBuffer: number[] = [];
+	let writeTimer: ReturnType<typeof setTimeout> | null = null;
+	let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+
+	// Control keys that should flush immediately for responsive feel
+	const IMMEDIATE_KEYS = [
+		0x03, // Ctrl+C
+		0x04, // Ctrl+D
+		0x0d, // Enter
+		0x1b, // Escape
+		0x7f // Backspace
+	];
 	let ptyDisconnected = $state(false);
 	let scrolledBack = $state(false);
 	let outputTail = $state<number[]>([]);
@@ -87,15 +100,21 @@
 		outputTail = combined.slice(-8);
 	}
 
-	async function writeBytes(bytes: Uint8Array): Promise<void> {
+	async function flushWriteBuffer(): Promise<void> {
+		if (writeBuffer.length === 0) return;
+		const data = writeBuffer;
+		writeBuffer = [];
+		if (writeTimer) {
+			clearTimeout(writeTimer);
+			writeTimer = null;
+		}
+
 		if (connectionDown || ptyDisconnected) return;
 		try {
-			await invoke('terminal_write', { termId: terminalId, data: Array.from(bytes) });
+			await invoke('terminal_write', { termId: terminalId, data });
 		} catch (error) {
 			console.error('Failed to write to terminal:', error);
 			ptyDisconnected = true;
-			// If the SSH connection is already down, avoid spamming "terminal disconnected" noise;
-			// the reconnect flow will surface the underlying connection issue.
 			if (!connectionDown && !writeErrorNotified) {
 				writeErrorNotified = true;
 				notificationsStore.notify({
@@ -108,6 +127,21 @@
 		}
 	}
 
+	function queueWrite(bytes: Uint8Array): void {
+		const hasImmediate = bytes.some((b) => IMMEDIATE_KEYS.includes(b));
+		writeBuffer.push(...bytes);
+
+		if (hasImmediate) {
+			void flushWriteBuffer(); // Immediate for control keys
+		} else if (!writeTimer) {
+			writeTimer = setTimeout(() => void flushWriteBuffer(), 32); // ~2 frames, optimal balance
+		}
+	}
+
+	async function writeBytes(bytes: Uint8Array): Promise<void> {
+		queueWrite(bytes);
+	}
+
 	function sendHotkey(action: HotkeyAction): void {
 		if (action.kind === 'bytes') {
 			void writeBytes(new Uint8Array(action.bytes));
@@ -115,6 +149,22 @@
 			void writeBytes(new TextEncoder().encode(action.text));
 		}
 		queueMicrotask(() => terminal?.focus());
+	}
+
+	function handleScrollPageUp(): void {
+		// Scroll local xterm buffer
+		terminal?.scrollPages(-1);
+		// Send PgUp key sequence for tmux/vim/less (ESC [ 5 ~)
+		queueWrite(new Uint8Array([0x1b, 0x5b, 0x35, 0x7e]));
+		updateScrolledBack();
+	}
+
+	function handleScrollPageDown(): void {
+		// Scroll local xterm buffer
+		terminal?.scrollPages(1);
+		// Send PgDn key sequence for tmux/vim/less (ESC [ 6 ~)
+		queueWrite(new Uint8Array([0x1b, 0x5b, 0x36, 0x7e]));
+		updateScrolledBack();
 	}
 
 	$effect(() => {
@@ -237,30 +287,33 @@
 		terminal.loadAddon(fitAddon);
 		terminal.loadAddon(new WebLinksAddon());
 
-		// Handle user input (keyboard/IME via xterm)
+		// Handle user input (keyboard/IME via xterm) - batched for performance
 		terminal.onData((data) => {
-			void writeBytes(new TextEncoder().encode(data));
+			queueWrite(new TextEncoder().encode(data));
 		});
 
-		// Handle resize
-		terminal.onResize(async ({ cols, rows }) => {
-			try {
-				if (connectionDown || ptyDisconnected) return;
-				// Avoid sending 0x0 sizes which can confuse remote TTY apps and cause redraw glitches.
-				if (cols < 2 || rows < 1) return;
-				await invoke('terminal_resize', { termId: terminalId, cols, rows });
-			} catch (error) {
-				console.error('Failed to resize terminal:', error);
-				if (!connectionDown && !resizeErrorNotified) {
-					resizeErrorNotified = true;
-					notificationsStore.notify({
-						severity: 'warning',
-						title: 'Terminal Resize Failed',
-						message: 'Could not resize the remote terminal.',
-						detail: error instanceof Error ? error.message : String(error)
-					});
+		// Handle resize - debounced to avoid flooding backend during window resize
+		terminal.onResize(({ cols, rows }) => {
+			if (resizeTimer) clearTimeout(resizeTimer);
+			resizeTimer = setTimeout(async () => {
+				try {
+					if (connectionDown || ptyDisconnected) return;
+					// Avoid sending 0x0 sizes which can confuse remote TTY apps and cause redraw glitches.
+					if (cols < 2 || rows < 1) return;
+					await invoke('terminal_resize', { termId: terminalId, cols, rows });
+				} catch (error) {
+					console.error('Failed to resize terminal:', error);
+					if (!connectionDown && !resizeErrorNotified) {
+						resizeErrorNotified = true;
+						notificationsStore.notify({
+							severity: 'warning',
+							title: 'Terminal Resize Failed',
+							message: 'Could not resize the remote terminal.',
+							detail: error instanceof Error ? error.message : String(error)
+						});
+					}
 				}
-			}
+			}, 150);
 		});
 
 		terminal.open(terminalContainer);
@@ -328,6 +381,12 @@
 	});
 
 	onDestroy(() => {
+		if (writeTimer) {
+			clearTimeout(writeTimer);
+		}
+		if (resizeTimer) {
+			clearTimeout(resizeTimer);
+		}
 		if (unlisten) {
 			unlisten();
 		}
@@ -347,6 +406,11 @@
 	<div class="h-full w-full flex flex-col">
 		<div class="relative flex-1 min-h-0">
 			<div bind:this={terminalContainer} class="h-full w-full"></div>
+			<FloatingScrollControls
+				disabled={connectionDown || ptyDisconnected}
+				onPageUp={handleScrollPageUp}
+				onPageDown={handleScrollPageDown}
+			/>
 			{#if scrolledBack && !connectionDown && !ptyDisconnected}
 				<button
 					class="absolute bottom-2 right-2 z-10 rounded bg-white/10 px-2 py-1 text-[11px] text-gray-100 hover:bg-white/20 transition-colors"
